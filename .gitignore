@@ -1,0 +1,19 @@
+# Output files
+output/*.csv
+output/*.log
+output/*.html
+output/*.pdf
+
+# Temporary files
+*.tmp
+temp/
+
+# PowerShell specific
+*.ps1xml
+
+# Claude Code - exclude from main repo
+.claude/
+
+# System files
+.DS_Store
+Thumbs.db
