@@ -1,0 +1,167 @@
+# WindowsWorkstationAuditor - Markdown Report Export Module
+# Version 1.3.0
+
+function Export-MarkdownReport {
+    <#
+    .SYNOPSIS
+        Exports audit results to a technician-friendly markdown report
+        
+    .DESCRIPTION
+        Creates a comprehensive markdown report with executive summary,
+        detailed findings, action items, and full data visibility for technicians.
+        
+    .PARAMETER Results
+        Array of audit results to include in the report
+        
+    .PARAMETER OutputPath
+        Directory path for the markdown report output
+        
+    .PARAMETER BaseFileName
+        Base filename for the report (without extension)
+    #>
+    param(
+        [array]$Results,
+        [string]$OutputPath,
+        [string]$BaseFileName
+    )
+    
+    if (-not $Results -or $Results.Count -eq 0) {
+        Write-LogMessage "WARN" "No results to export to markdown report" "EXPORT"
+        return
+    }
+    
+    $ReportPath = Join-Path $OutputPath "${BaseFileName}_technician_report.md"
+    
+    try {
+        # Build report content
+        $ReportContent = @()
+        
+        # Header
+        $ReportContent += "# Windows Workstation Security Audit Report"
+        $ReportContent += ""
+        $ReportContent += "**Computer:** $env:COMPUTERNAME"
+        $ReportContent += "**Generated:** $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')"
+        $ReportContent += "**Tool Version:** WindowsWorkstationAuditor v1.3.0"
+        $ReportContent += ""
+        
+        # Executive Summary
+        $HighRisk = $Results | Where-Object { $_.RiskLevel -eq "HIGH" }
+        $MediumRisk = $Results | Where-Object { $_.RiskLevel -eq "MEDIUM" }
+        $LowRisk = $Results | Where-Object { $_.RiskLevel -eq "LOW" }
+        $InfoItems = $Results | Where-Object { $_.RiskLevel -eq "INFO" }
+        
+        $ReportContent += "## Executive Summary"
+        $ReportContent += ""
+        $ReportContent += "| Risk Level | Count | Priority |"
+        $ReportContent += "|------------|--------|----------|"
+        $ReportContent += "| HIGH | $($HighRisk.Count) | Immediate Action Required |"
+        $ReportContent += "| MEDIUM | $($MediumRisk.Count) | Review and Plan Remediation |"
+        $ReportContent += "| LOW | $($LowRisk.Count) | Monitor and Maintain |"
+        $ReportContent += "| INFO | $($InfoItems.Count) | Informational |"
+        $ReportContent += ""
+        
+        # Critical Action Items
+        if ($HighRisk.Count -gt 0 -or $MediumRisk.Count -gt 0) {
+            $ReportContent += "## Critical Action Items"
+            $ReportContent += ""
+            
+            if ($HighRisk.Count -gt 0) {
+                $ReportContent += "### HIGH PRIORITY (Immediate Action Required)"
+                $ReportContent += ""
+                foreach ($Item in $HighRisk) {
+                    $ReportContent += "- **$($Item.Category) - $($Item.Item):** $($Item.Value)"
+                    $ReportContent += "  - Details: $($Item.Details)"
+                    if ($Item.Compliance) {
+                        $ReportContent += "  - Compliance: $($Item.Compliance)"
+                    }
+                    $ReportContent += ""
+                }
+            }
+            
+            if ($MediumRisk.Count -gt 0) {
+                $ReportContent += "### MEDIUM PRIORITY (Review and Plan)"
+                $ReportContent += ""
+                foreach ($Item in $MediumRisk) {
+                    $ReportContent += "- **$($Item.Category) - $($Item.Item):** $($Item.Value)"
+                    $ReportContent += "  - Details: $($Item.Details)"
+                    if ($Item.Compliance) {
+                        $ReportContent += "  - Compliance: $($Item.Compliance)"
+                    }
+                    $ReportContent += ""
+                }
+            }
+        }
+        
+        # Additional Information (LOW and INFO items only, excluding Security Events to avoid repetition)
+        $AdditionalItems = $Results | Where-Object { $_.RiskLevel -in @("LOW", "INFO") -and $_.Category -ne "Security Events" }
+        $AdditionalCategories = $AdditionalItems | Group-Object Category | Sort-Object Name
+        
+        if ($AdditionalCategories.Count -gt 0) {
+            $ReportContent += "## Additional Information"
+            $ReportContent += ""
+            
+            foreach ($Category in $AdditionalCategories) {
+                $CategoryName = $Category.Name
+                $CategoryItems = $Category.Group
+                
+                $ReportContent += "### $CategoryName"
+                $ReportContent += ""
+                
+                foreach ($Item in $CategoryItems) {
+                    $RiskIcon = switch ($Item.RiskLevel) {
+                        "LOW" { "[LOW]" }
+                        default { "[INFO]" }
+                    }
+                    
+                    $ReportContent += "**$RiskIcon $($Item.Item):** $($Item.Value)"
+                    $ReportContent += ""
+                    $ReportContent += "- **Details:** $($Item.Details)"
+                    if ($Item.Compliance) {
+                        $ReportContent += "- **Compliance:** $($Item.Compliance)"
+                    }
+                    $ReportContent += ""
+                }
+            }
+        }
+        
+        # System Information Section with Enhanced Details
+        $SystemInfo = $Results | Where-Object { $_.Category -eq "System" }
+        if ($SystemInfo) {
+            $ReportContent += "## System Configuration Details"
+            $ReportContent += ""
+            foreach ($Item in $SystemInfo) {
+                $ReportContent += "- **$($Item.Item):** $($Item.Value) - $($Item.Details)"
+            }
+            $ReportContent += ""
+        }
+        
+        # Compliance Summary
+        $ComplianceItems = $Results | Where-Object { $_.Compliance -and $_.Compliance.Trim() -ne "" }
+        if ($ComplianceItems.Count -gt 0) {
+            $ReportContent += "## Compliance Recommendations"
+            $ReportContent += ""
+            $ComplianceItems | Group-Object Compliance | ForEach-Object {
+                $ReportContent += "- **$($_.Name)**"
+                $ReportContent += "  - Affected Items: $($_.Count)"
+                $ReportContent += ""
+            }
+        }
+        
+        # Footer
+        $ReportContent += "---"
+        $ReportContent += ""
+        $ReportContent += "*This report was generated by WindowsWorkstationAuditor v1.3.0*"
+        $ReportContent += ""
+        $ReportContent += "*For detailed data analysis and aggregation, refer to the corresponding JSON export.*"
+        
+        # Write report to file
+        $ReportContent | Set-Content -Path $ReportPath -Encoding UTF8
+        
+        Write-LogMessage "SUCCESS" "Markdown report exported: $ReportPath" "EXPORT"
+        return $ReportPath
+    }
+    catch {
+        Write-LogMessage "ERROR" "Failed to export markdown report: $($_.Exception.Message)" "EXPORT"
+        return $null
+    }
+}

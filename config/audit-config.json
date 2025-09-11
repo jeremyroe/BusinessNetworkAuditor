@@ -1,0 +1,32 @@
+{
+  "version": "1.3.0",
+  "modules": {
+    "system": { "enabled": true, "timeout": 30 },
+    "users": { "enabled": true, "timeout": 15 },
+    "software": { "enabled": true, "timeout": 45 },
+    "security": { "enabled": true, "timeout": 20 },
+    "patches": { "enabled": true, "timeout": 60 },
+    "policy": { "enabled": true, "timeout": 30 },
+    "disk": { "enabled": true, "timeout": 20 },
+    "memory": { "enabled": true, "timeout": 15 },
+    "printer": { "enabled": true, "timeout": 15 },
+    "network": { "enabled": true, "timeout": 30 },
+    "process": { "enabled": true, "timeout": 30 },
+    "eventlog": { "enabled": true, "timeout": 45 }
+  },
+  "output": {
+    "formats": ["markdown", "rawjson"],
+    "path": "./output",
+    "timestamp": true,
+    "description": {
+      "markdown": "Technician-friendly report with detailed findings and action items",
+      "rawjson": "Comprehensive data export for aggregation and analysis tools",
+      "csv": "Legacy tabular format (basic summary data only)",
+      "json": "Legacy simple JSON format (basic summary data only)"
+    }
+  },
+  "compliance": {
+    "frameworks": ["NIST", "HIPAA", "CIS"],
+    "risk_levels": ["HIGH", "MEDIUM", "LOW", "INFO"]
+  }
+}

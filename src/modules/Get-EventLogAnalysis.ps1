@@ -1,0 +1,316 @@
+# WindowsWorkstationAuditor - Event Log Analysis Module
+# Version 1.3.0
+
+function Get-EventLogAnalysis {
+    <#
+    .SYNOPSIS
+        Analyzes critical system events and security events from Windows Event Logs
+        
+    .DESCRIPTION
+        Collects and analyzes Windows Event Logs for security-relevant events including
+        logon failures, system errors, security policy changes, and other critical events
+        that may indicate security issues or system problems.
+        
+    .OUTPUTS
+        Array of PSCustomObjects with Category, Item, Value, Details, RiskLevel, Compliance
+        
+    .NOTES
+        Requires: Write-LogMessage function
+        Permissions: Local user (Event Log read access)
+    #>
+    
+    Write-LogMessage "INFO" "Analyzing Windows Event Logs for security events..." "EVENTLOG"
+    
+    try {
+        $Results = @()
+        $AnalysisStartTime = (Get-Date).AddDays(-7)  # Analyze last 7 days
+        
+        # Define critical event IDs to monitor
+        $CriticalEvents = @{
+            # High-priority security events only
+            4625 = @{LogName = "Security"; Description = "Failed Logon"; RiskLevel = "MEDIUM"}
+            4720 = @{LogName = "Security"; Description = "User Account Created"; RiskLevel = "MEDIUM"}
+            4724 = @{LogName = "Security"; Description = "Password Reset Attempt"; RiskLevel = "MEDIUM"}
+            4732 = @{LogName = "Security"; Description = "User Added to Security Group"; RiskLevel = "MEDIUM"}
+            4740 = @{LogName = "Security"; Description = "User Account Locked"; RiskLevel = "HIGH"}
+            4771 = @{LogName = "Security"; Description = "Kerberos Pre-auth Failed"; RiskLevel = "MEDIUM"}
+            
+            # Critical system events
+            6008 = @{LogName = "System"; Description = "Unexpected System Shutdown"; RiskLevel = "HIGH"}
+            7034 = @{LogName = "System"; Description = "Service Crashed"; RiskLevel = "MEDIUM"}
+            
+            # Application stability events
+            1000 = @{LogName = "Application"; Description = "Application Error"; RiskLevel = "MEDIUM"}
+        }
+        
+        # Get event log summary information
+        try {
+            $EventLogs = Get-EventLog -List
+            $SecurityLog = $EventLogs | Where-Object { $_.LogDisplayName -eq "Security" }
+            $SystemLog = $EventLogs | Where-Object { $_.LogDisplayName -eq "System" }
+            $ApplicationLog = $EventLogs | Where-Object { $_.LogDisplayName -eq "Application" }
+            
+            if ($SecurityLog) {
+                $SecurityLogSize = [math]::Round($SecurityLog.FileSize / 1MB, 2)
+                $SecurityMaxSize = [math]::Round($SecurityLog.MaximumKilobytes / 1024, 2)
+                $SecurityUsagePercent = [math]::Round(($SecurityLogSize / $SecurityMaxSize) * 100, 1)
+                
+                $SecurityRisk = if ($SecurityUsagePercent -gt 90) { "HIGH" } elseif ($SecurityUsagePercent -gt 75) { "MEDIUM" } else { "LOW" }
+                $SecurityCompliance = if ($SecurityUsagePercent -gt 85) {
+                    "NIST: Security event log approaching capacity - consider archiving"
+                } else { "" }
+                
+                $Results += [PSCustomObject]@{
+                    Category = "Event Logs"
+                    Item = "Security Log Status"
+                    Value = "$SecurityUsagePercent% full"
+                    Details = "Size: $SecurityLogSize MB / $SecurityMaxSize MB, Entry count available via event queries"
+                    RiskLevel = $SecurityRisk
+                    Compliance = $SecurityCompliance
+                }
+                
+                Write-LogMessage "INFO" "Security log: $SecurityUsagePercent% full ($SecurityLogSize MB / $SecurityMaxSize MB)" "EVENTLOG"
+            }
+            
+            if ($SystemLog) {
+                $SystemLogSize = [math]::Round($SystemLog.FileSize / 1MB, 2)
+                $SystemMaxSize = [math]::Round($SystemLog.MaximumKilobytes / 1024, 2)
+                $SystemUsagePercent = [math]::Round(($SystemLogSize / $SystemMaxSize) * 100, 1)
+                
+                $Results += [PSCustomObject]@{
+                    Category = "Event Logs"
+                    Item = "System Log Status"
+                    Value = "$SystemUsagePercent% full"
+                    Details = "Size: $SystemLogSize MB / $SystemMaxSize MB, Entry count available via event queries"
+                    RiskLevel = "INFO"
+                    Compliance = ""
+                }
+                
+                Write-LogMessage "INFO" "System log: $SystemUsagePercent% full ($SystemLogSize MB / $SystemMaxSize MB)" "EVENTLOG"
+            }
+        }
+        catch {
+            Write-LogMessage "WARN" "Could not retrieve event log summary: $($_.Exception.Message)" "EVENTLOG"
+        }
+        
+        # Analyze critical security events
+        foreach ($EventID in $CriticalEvents.Keys) {
+            $EventInfo = $CriticalEvents[$EventID]
+            $LogName = $EventInfo.LogName
+            $Description = $EventInfo.Description
+            $BaseRiskLevel = $EventInfo.RiskLevel
+            
+            try {
+                Write-LogMessage "INFO" "Checking for Event ID $EventID ($Description) in $LogName log..." "EVENTLOG"
+                
+                $Events = Get-EventLog -LogName $LogName -After $AnalysisStartTime -InstanceId $EventID -ErrorAction SilentlyContinue
+                
+                if ($Events) {
+                    $EventCount = $Events.Count
+                    $MostRecent = $Events | Sort-Object TimeGenerated -Descending | Select-Object -First 1
+                    $MostRecentTime = $MostRecent.TimeGenerated
+                    
+                    # Determine risk level based on event type and frequency
+                    $RiskLevel = $BaseRiskLevel
+                    $Compliance = ""
+                    
+                    # Special handling for high-frequency events
+                    if ($EventID -eq 4625 -and $EventCount -gt 50) {  # Multiple failed logons
+                        $RiskLevel = "HIGH"
+                        $Compliance = "NIST: Investigate multiple failed logon attempts - possible brute force attack"
+                    }
+                    elseif ($EventID -eq 4740 -and $EventCount -gt 5) {  # Multiple account lockouts
+                        $RiskLevel = "HIGH"
+                        $Compliance = "NIST: Multiple account lockouts may indicate attack or policy issues"
+                    }
+                    elseif ($EventID -eq 6008 -and $EventCount -gt 3) {  # Multiple unexpected shutdowns
+                        $RiskLevel = "HIGH"
+                        $Compliance = "NIST: Multiple unexpected shutdowns may indicate system instability"
+                    }
+                    elseif ($EventID -eq 7034 -and $EventCount -gt 10) {  # Multiple service crashes
+                        $RiskLevel = "HIGH"
+                        $Compliance = "NIST: Multiple service crashes may indicate system problems"
+                    }
+                    elseif ($EventID -eq 4625) {
+                        $Compliance = "NIST: Monitor failed logon attempts for security threats"
+                    }
+                    elseif ($EventID -eq 4672) {
+                        $Compliance = "NIST: Monitor special privilege assignments for unauthorized elevation"
+                    }
+                    
+                    $Results += [PSCustomObject]@{
+                        Category = "Security Events"
+                        Item = $Description
+                        Value = "$EventCount events (7 days)"
+                        Details = "Event ID: $EventID, Most recent: $MostRecentTime"
+                        RiskLevel = $RiskLevel
+                        Compliance = $Compliance
+                    }
+                    
+                    Write-LogMessage "INFO" "Event ID $EventID`: $EventCount events found, most recent: $MostRecentTime" "EVENTLOG"
+                }
+                else {
+                    # Only report absence of critical security events, not routine events
+                    if ($EventID -in @(4625, 4740)) {
+                        Write-LogMessage "INFO" "Event ID $EventID`: No events found (good)" "EVENTLOG"
+                    }
+                }
+            }
+            catch {
+                Write-LogMessage "WARN" "Could not query Event ID $EventID in $LogName log: $($_.Exception.Message)" "EVENTLOG"
+            }
+        }
+        
+        # Check for Windows Defender events
+        try {
+            $DefenderEvents = Get-WinEvent -FilterHashtable @{LogName="Microsoft-Windows-Windows Defender/Operational"; StartTime=$AnalysisStartTime} -ErrorAction SilentlyContinue
+            
+            if ($DefenderEvents) {
+                $ThreatEvents = $DefenderEvents | Where-Object { $_.Id -in @(1006, 1007, 1008, 1009, 1116, 1117) }
+                $ScanEvents = $DefenderEvents | Where-Object { $_.Id -in @(1000, 1001, 1002) }
+                
+                if ($ThreatEvents) {
+                    $ThreatCount = $ThreatEvents.Count
+                    $Results += [PSCustomObject]@{
+                        Category = "Security Events"
+                        Item = "Windows Defender Threats"
+                        Value = "$ThreatCount threats detected"
+                        Details = "Threat detection events in last 7 days"
+                        RiskLevel = "HIGH"
+                        Compliance = "NIST: Investigate and remediate detected security threats"
+                    }
+                    Write-LogMessage "WARN" "Windows Defender: $ThreatCount threats detected in last 7 days" "EVENTLOG"
+                } else {
+                    $Results += [PSCustomObject]@{
+                        Category = "Security Events"
+                        Item = "Windows Defender Threats"
+                        Value = "0 threats detected"
+                        Details = "No threat detection events in last 7 days"
+                        RiskLevel = "LOW"
+                        Compliance = ""
+                    }
+                }
+                
+                if ($ScanEvents) {
+                    $ScanCount = $ScanEvents.Count
+                    $Results += [PSCustomObject]@{
+                        Category = "Security Events"
+                        Item = "Windows Defender Scans"
+                        Value = "$ScanCount scans performed"
+                        Details = "Antivirus scan events in last 7 days"
+                        RiskLevel = "INFO"
+                        Compliance = ""
+                    }
+                    Write-LogMessage "INFO" "Windows Defender: $ScanCount scans performed in last 7 days" "EVENTLOG"
+                }
+            }
+        }
+        catch {
+            Write-LogMessage "WARN" "Could not retrieve Windows Defender events: $($_.Exception.Message)" "EVENTLOG"
+        }
+        
+        # Check for PowerShell execution events (potential security concern)
+        try {
+            $PowerShellEvents = Get-WinEvent -FilterHashtable @{LogName="Microsoft-Windows-PowerShell/Operational"; StartTime=$AnalysisStartTime; Id=4103,4104} -ErrorAction SilentlyContinue
+            
+            if ($PowerShellEvents) {
+                $PSEventCount = $PowerShellEvents.Count
+                $SuspiciousPS = $PowerShellEvents | Where-Object { 
+                    $_.Message -match "Invoke-|Download|WebClient|System.Net|Base64|Encode|Hidden|Bypass|ExecutionPolicy" 
+                }
+                
+                $PSRisk = if ($SuspiciousPS.Count -gt 0) { "HIGH" } elseif ($PSEventCount -gt 100) { "MEDIUM" } else { "LOW" }
+                $PSCompliance = if ($SuspiciousPS.Count -gt 0) {
+                    "NIST: Investigate suspicious PowerShell execution patterns"
+                } elseif ($PSEventCount -gt 100) {
+                    "NIST: High PowerShell usage - review for legitimate business needs"
+                } else { "" }
+                
+                # Build detailed suspicious patterns description
+                $SuspiciousPatterns = @()
+                if ($SuspiciousPS.Count -gt 0) {
+                    $PatternCounts = @{}
+                    foreach ($Event in $SuspiciousPS) {
+                        if ($Event.Message -match "Invoke-") { $PatternCounts["Invoke Commands"]++ }
+                        if ($Event.Message -match "Download|WebClient|System.Net") { $PatternCounts["Network Downloads"]++ }
+                        if ($Event.Message -match "Base64|Encode") { $PatternCounts["Encoding/Obfuscation"]++ }
+                        if ($Event.Message -match "Hidden|Bypass|ExecutionPolicy") { $PatternCounts["Policy Bypass"]++ }
+                    }
+                    
+                    foreach ($Pattern in $PatternCounts.Keys) {
+                        $SuspiciousPatterns += "$Pattern ($($PatternCounts[$Pattern]))"
+                    }
+                }
+                
+                $PatternDetails = if ($SuspiciousPatterns.Count -gt 0) {
+                    "Suspicious patterns detected: " + ($SuspiciousPatterns -join ", ")
+                } else {
+                    "No suspicious patterns detected in PowerShell executions"
+                }
+                
+                $Results += [PSCustomObject]@{
+                    Category = "Security Events"
+                    Item = "PowerShell Execution"
+                    Value = "$PSEventCount executions (7 days)"
+                    Details = "$PatternDetails. Total suspicious events: $($SuspiciousPS.Count)"
+                    RiskLevel = $PSRisk
+                    Compliance = $PSCompliance
+                }
+                
+                # Add raw PowerShell events to data collection for detailed analysis
+                if ($SuspiciousPS.Count -gt 0) {
+                    $PSEventDetails = @()
+                    foreach ($Event in ($SuspiciousPS | Select-Object -First 10)) {
+                        $PSEventDetails += [PSCustomObject]@{
+                            TimeGenerated = $Event.TimeCreated
+                            EventId = $Event.Id
+                            Message = $Event.Message.Substring(0, [Math]::Min(500, $Event.Message.Length))
+                            ProcessId = $Event.ProcessId
+                            UserId = $Event.UserId
+                        }
+                    }
+                    Add-RawDataCollection -CollectionName "SuspiciousPowerShellEvents" -Data $PSEventDetails
+                }
+                
+                Write-LogMessage "INFO" "PowerShell events: $PSEventCount total, $($SuspiciousPS.Count) suspicious" "EVENTLOG"
+            }
+        }
+        catch {
+            Write-LogMessage "WARN" "Could not retrieve PowerShell events: $($_.Exception.Message)" "EVENTLOG"
+        }
+        
+        # Check for USB device insertion events
+        try {
+            $USBEvents = Get-WinEvent -FilterHashtable @{LogName="System"; StartTime=$AnalysisStartTime; Id=20001,20003} -ErrorAction SilentlyContinue
+            
+            if ($USBEvents) {
+                $USBCount = $USBEvents.Count
+                $USBRisk = if ($USBCount -gt 20) { "MEDIUM" } else { "LOW" }
+                $USBCompliance = if ($USBCount -gt 10) {
+                    "NIST: Monitor USB device usage for data loss prevention"
+                } else { "" }
+                
+                $Results += [PSCustomObject]@{
+                    Category = "Security Events"
+                    Item = "USB Device Activity"
+                    Value = "$USBCount USB events (7 days)"
+                    Details = "USB device insertion/removal events"
+                    RiskLevel = $USBRisk
+                    Compliance = $USBCompliance
+                }
+                
+                Write-LogMessage "INFO" "USB events: $USBCount device events in last 7 days" "EVENTLOG"
+            }
+        }
+        catch {
+            Write-LogMessage "WARN" "Could not retrieve USB device events: $($_.Exception.Message)" "EVENTLOG"
+        }
+        
+        Write-LogMessage "SUCCESS" "Event log analysis completed - $($Results.Count) items analyzed" "EVENTLOG"
+        return $Results
+    }
+    catch {
+        Write-LogMessage "ERROR" "Failed to analyze event logs: $($_.Exception.Message)" "EVENTLOG"
+        return @()
+    }
+}
