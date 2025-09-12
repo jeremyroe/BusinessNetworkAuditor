@@ -73,7 +73,7 @@ function Write-LogMessage {
     if ($Script:LogFile) {
         Add-Content -Path $Script:LogFile -Value $LogEntry
     }
-
+}
 
 # === src\core\Initialize-Logging.ps1 ===
 # WindowsWorkstationAuditor - Logging Initialization Module
@@ -103,7 +103,7 @@ function Initialize-Logging {
     Write-LogMessage "INFO" "Computer: $ComputerName"
     Write-LogMessage "INFO" "User: $env:USERNAME"
     Write-LogMessage "INFO" "Base filename: $Script:BaseFileName"
-
+}
 
 # === src\core\Export-MarkdownReport.ps1 ===
 # WindowsWorkstationAuditor - Markdown Report Export Module
@@ -272,7 +272,7 @@ function Export-MarkdownReport {
         Write-LogMessage "ERROR" "Failed to export markdown report: $($_.Exception.Message)" "EXPORT"
         return $null
     }
-
+}
 
 # === src\core\Export-RawDataJSON.ps1 ===
 # WindowsWorkstationAuditor - Raw Data JSON Export Module
@@ -466,7 +466,7 @@ function Add-RawDataCollection {
     
     $Global:RawDataCollections[$CollectionName] = $Data
     Write-LogMessage "INFO" "Added raw data collection: $CollectionName ($($Data.Count) items)" "EXPORT"
-
+}
 
 # === src\modules\Get-SystemInformation.ps1 ===
 # WindowsWorkstationAuditor - System Information Module

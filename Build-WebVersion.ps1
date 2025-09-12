@@ -52,9 +52,7 @@ foreach ($File in $CoreFiles) {
     if (Test-Path $File) {
         Write-Host "  Adding $File" -ForegroundColor Gray
         $Content = Get-Content $File -Raw
-        # Remove the function wrapper to just get the content
-        $Content = $Content -replace '^[#\s]*.*?(?=function)', '' -replace '^function\s+[\w-]+\s*{', '' 
-        $Content = $Content.TrimEnd().TrimEnd('}')
+        # Keep the full function intact - no stripping needed
         $WebScript += "`n`n# === $File ===`n$Content"
     }
 }
