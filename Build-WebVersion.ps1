@@ -132,7 +132,13 @@ try {
         Write-LogMessage "SUCCESS" "Collected `$(`$AllResults.Count) audit results" "MAIN"
         
         # Export results
-        Export-AuditResults -Results `$AllResults -Config `$Config
+        if (`$Config.output.formats -contains "markdown") {
+            Export-MarkdownReport -Results `$AllResults -OutputPath `$OutputPath -BaseFileName `$Script:BaseFileName
+        }
+        
+        if (`$Config.output.formats -contains "rawjson") {
+            Export-RawDataJSON -Results `$AllResults -OutputPath `$OutputPath -BaseFileName `$Script:BaseFileName
+        }
         
         Write-LogMessage "SUCCESS" "Audit completed - check `$OutputPath for results" "MAIN"
     } else {
