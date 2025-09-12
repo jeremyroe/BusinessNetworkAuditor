@@ -187,25 +187,6 @@ src/
 }
 ```
 
-## Use Cases
-
-### IT Security Teams
-- **Workstation Assessment**: Comprehensive security posture evaluation
-- **Compliance Audits**: NIST, HIPAA, and custom framework compliance
-- **Incident Response**: Security configuration verification during investigations
-- **Baseline Documentation**: Establish security baselines for comparison
-
-### Managed Service Providers (MSPs)
-- **Client Onboarding**: Initial security assessment of new client environments
-- **Regular Reviews**: Scheduled security health checks
-- **Compliance Reporting**: Automated compliance documentation
-- **Issue Identification**: Proactive security issue detection
-
-### Enterprise IT
-- **Security Monitoring**: Regular workstation security validation
-- **Patch Management**: Update status tracking and compliance
-- **Policy Enforcement**: Group Policy and security setting verification
-- **Risk Assessment**: Quantified risk analysis across the enterprise
 
 ## Security Considerations
 
@@ -307,13 +288,6 @@ Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
 - **Permission Awareness**: Graceful handling of access denied scenarios
 - **Encoding Fixes**: Resolved Unicode character issues in SYSTEM context
 
-## Support
-
-For issues or questions, refer to:
-- The troubleshooting section above
-- Check the audit logs for detailed error information
-- Review the testing guide in `docs/TESTING.md`
-
 ---
 
-**Note**: This tool is designed for legitimate security assessment purposes. Ensure you have proper authorization before running audits on systems you do not own or administer.
+**Internal Tool**: This audit tool is designed for internal IT assessment purposes.
