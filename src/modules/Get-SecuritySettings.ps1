@@ -174,7 +174,7 @@ function Get-SecuritySettings {
                                 Value = "$ProcessAV - Process Running"
                                 Details = "AV processes detected but not registered with Security Center. May indicate configuration issue or secondary AV installation."
                                 RiskLevel = "MEDIUM"
-                                Compliance = "NIST: Verify antivirus registration and avoid conflicting AV products"
+                                Compliance = "Verify antivirus registration and avoid conflicting AV products"
                             }
                             
                             Write-LogMessage "WARN" "AV process detected but not in Security Center: $ProcessAV" "SECURITY"
@@ -214,11 +214,17 @@ function Get-SecuritySettings {
                 $Compliance = ""
                 
                 if (-not $AV.Enabled) {
-                    $RiskLevel = "HIGH"
-                    $Compliance = "NIST/HIPAA: Antivirus must be enabled and active"
+                    # Check if this is Windows Defender and other AV products are active
+                    if ($AV.Name -match "Windows Defender" -and $ActiveAV.Count -gt 0) {
+                        $RiskLevel = "LOW" 
+                        $Compliance = "Windows Defender properly disabled - other active AV products detected"
+                    } else {
+                        $RiskLevel = "HIGH"
+                        $Compliance = "Antivirus must be enabled and active"
+                    }
                 } elseif ($AV.UpToDate -eq $false) {
                     $RiskLevel = "MEDIUM"
-                    $Compliance = "NIST: Antivirus signatures must be current"
+                    $Compliance = "Antivirus signatures must be current"
                 } elseif ($InstanceCount -gt 1) {
                     $RiskLevel = "MEDIUM"
                     $Compliance = "Multiple instances may indicate conflicting installations"
@@ -254,7 +260,7 @@ function Get-SecuritySettings {
             
             if ($UniqueActiveProducts -eq 0) {
                 $SummaryRisk = "HIGH"
-                $SummaryCompliance = "NIST/HIPAA: No active antivirus protection"
+                $SummaryCompliance = "No active antivirus protection"
             } elseif ($UniqueActiveProducts -gt 1) {
                 $SummaryRisk = "MEDIUM"
                 $SummaryCompliance = "Multiple active AV products may cause conflicts - review configuration"
@@ -280,7 +286,7 @@ function Get-SecuritySettings {
                 Value = "None detected"
                 Details = "No antivirus software detected via Security Center, Defender API, or process analysis"
                 RiskLevel = "HIGH"
-                Compliance = "NIST/HIPAA: Antivirus protection required"
+                Compliance = "Antivirus protection required"
             }
             
             Write-LogMessage "ERROR" "No antivirus protection detected by enhanced detection methods" "SECURITY"
@@ -298,7 +304,7 @@ function Get-SecuritySettings {
                 Value = if ($Profile.Enabled) { "Enabled" } else { "Disabled" }
                 Details = "Default action: Inbound=$($Profile.DefaultInboundAction), Outbound=$($Profile.DefaultOutboundAction)"
                 RiskLevel = if ($Profile.Enabled) { "LOW" } else { "HIGH" }
-                Compliance = if (-not $Profile.Enabled) { "NIST: Enable firewall protection" } else { "" }
+                Compliance = if (-not $Profile.Enabled) { "Enable firewall protection" } else { "" }
             }
         }
         
@@ -310,7 +316,147 @@ function Get-SecuritySettings {
             Value = if ($UACKey.EnableLUA) { "Enabled" } else { "Disabled" }
             Details = "UAC elevation prompts"
             RiskLevel = if ($UACKey.EnableLUA) { "LOW" } else { "HIGH" }
-            Compliance = if (-not $UACKey.EnableLUA) { "NIST: Enable UAC for privilege escalation control" } else { "" }
+            Compliance = if (-not $UACKey.EnableLUA) { "Enable UAC for privilege escalation control" } else { "" }
+        }
+        
+        # BitLocker Encryption Analysis
+        try {
+            Write-LogMessage "INFO" "Analyzing BitLocker encryption status..." "SECURITY"
+            
+            # Check if BitLocker is available
+            $BitLockerFeature = Get-WindowsOptionalFeature -Online -FeatureName "BitLocker" -ErrorAction SilentlyContinue
+            if ($BitLockerFeature -and $BitLockerFeature.State -eq "Enabled") {
+                
+                # Get all BitLocker volumes
+                $BitLockerVolumes = Get-BitLockerVolume -ErrorAction SilentlyContinue
+                if ($BitLockerVolumes) {
+                    $EncryptedVolumes = @()
+                    $UnencryptedVolumes = @()
+                    
+                    foreach ($Volume in $BitLockerVolumes) {
+                        $VolumeInfo = @{
+                            MountPoint = $Volume.MountPoint
+                            EncryptionPercentage = $Volume.EncryptionPercentage
+                            VolumeStatus = $Volume.VolumeStatus
+                            ProtectionStatus = $Volume.ProtectionStatus
+                            EncryptionMethod = $Volume.EncryptionMethod
+                            KeyProtectors = $Volume.KeyProtector
+                        }
+                        
+                        if ($Volume.VolumeStatus -eq "FullyEncrypted") {
+                            $EncryptedVolumes += $VolumeInfo
+                        } else {
+                            $UnencryptedVolumes += $VolumeInfo
+                        }
+                        
+                        # Analyze key protectors and escrow status
+                        $KeyProtectorDetails = @()
+                        $RecoveryKeyEscrowed = $false
+                        $EscrowLocation = "None"
+                        
+                        foreach ($Protector in $Volume.KeyProtector) {
+                            $KeyProtectorDetails += "$($Protector.KeyProtectorType)"
+                            
+                            # Check for recovery password protector
+                            if ($Protector.KeyProtectorType -eq "RecoveryPassword") {
+                                # Try to determine escrow status via manage-bde
+                                try {
+                                    $MbdeOutput = & manage-bde -protectors -get $Volume.MountPoint 2>$null
+                                    if ($LASTEXITCODE -eq 0) {
+                                        # Check for Azure AD or AD escrow indicators
+                                        if ($MbdeOutput -match "Backed up to Azure Active Directory|Backed up to Microsoft Entra") {
+                                            $RecoveryKeyEscrowed = $true
+                                            $EscrowLocation = "Azure AD"
+                                        }
+                                        elseif ($MbdeOutput -match "Backed up to Active Directory") {
+                                            $RecoveryKeyEscrowed = $true
+                                            $EscrowLocation = "Active Directory"
+                                        }
+                                    }
+                                }
+                                catch {
+                                    Write-LogMessage "WARN" "Could not determine recovery key escrow status for volume $($Volume.MountPoint)" "SECURITY"
+                                }
+                            }
+                        }
+                        
+                        # Report individual volume status
+                        $VolumeRisk = switch ($Volume.VolumeStatus) {
+                            "FullyEncrypted" { "LOW" }
+                            "EncryptionInProgress" { "MEDIUM" }
+                            "DecryptionInProgress" { "HIGH" }
+                            "FullyDecrypted" { "HIGH" }
+                            default { "HIGH" }
+                        }
+                        
+                        $VolumeCompliance = switch ($Volume.VolumeStatus) {
+                            "FullyDecrypted" { "Enable BitLocker encryption for data protection" }
+                            "DecryptionInProgress" { "Complete BitLocker decryption or re-enable encryption" }
+                            "EncryptionInProgress" { "Allow BitLocker encryption to complete" }
+                            default { "" }
+                        }
+                        
+                        # Add recovery key escrow compliance
+                        if ($Volume.VolumeStatus -eq "FullyEncrypted" -and -not $RecoveryKeyEscrowed) {
+                            $VolumeCompliance = "Backup BitLocker recovery key to Azure AD or Active Directory"
+                            $VolumeRisk = "MEDIUM"
+                        }
+                        
+                        $Results += [PSCustomObject]@{
+                            Category = "Security"
+                            Item = "BitLocker Volume"
+                            Value = "$($Volume.MountPoint) - $($Volume.VolumeStatus)"
+                            Details = "Encryption: $($Volume.EncryptionPercentage)%, Protection: $($Volume.ProtectionStatus), Method: $($Volume.EncryptionMethod), Key Escrow: $EscrowLocation"
+                            RiskLevel = $VolumeRisk
+                            Compliance = $VolumeCompliance
+                        }
+                        
+                        Write-LogMessage "INFO" "BitLocker volume $($Volume.MountPoint): $($Volume.VolumeStatus), Escrow: $EscrowLocation" "SECURITY"
+                    }
+                    
+                    # Summary report
+                    $TotalVolumes = $BitLockerVolumes.Count
+                    $EncryptedCount = $EncryptedVolumes.Count
+                    $Results += [PSCustomObject]@{
+                        Category = "Security"
+                        Item = "BitLocker Encryption Summary"
+                        Value = "$EncryptedCount of $TotalVolumes volumes encrypted"
+                        Details = "BitLocker disk encryption status across all volumes"
+                        RiskLevel = if ($EncryptedCount -eq $TotalVolumes) { "LOW" } elseif ($EncryptedCount -gt 0) { "MEDIUM" } else { "HIGH" }
+                        Compliance = if ($EncryptedCount -lt $TotalVolumes) { "Encrypt all system and data volumes with BitLocker" } else { "" }
+                    }
+                    
+                } else {
+                    $Results += [PSCustomObject]@{
+                        Category = "Security"
+                        Item = "BitLocker Encryption"
+                        Value = "No volumes detected"
+                        Details = "Unable to retrieve BitLocker volume information"
+                        RiskLevel = "MEDIUM"
+                        Compliance = "Verify BitLocker configuration and permissions"
+                    }
+                }
+            } else {
+                $Results += [PSCustomObject]@{
+                    Category = "Security"
+                    Item = "BitLocker Encryption"
+                    Value = "Not Available"
+                    Details = "BitLocker feature not enabled or not supported"
+                    RiskLevel = "HIGH"
+                    Compliance = "Enable BitLocker feature for disk encryption"
+                }
+            }
+        }
+        catch {
+            Write-LogMessage "WARN" "Could not analyze BitLocker encryption: $($_.Exception.Message)" "SECURITY"
+            $Results += [PSCustomObject]@{
+                Category = "Security"
+                Item = "BitLocker Encryption"
+                Value = "Analysis Failed"
+                Details = "Unable to analyze BitLocker status - may require elevated privileges"
+                RiskLevel = "MEDIUM"
+                Compliance = "Manual verification required"
+            }
         }
         
         Write-LogMessage "SUCCESS" "Security settings analysis completed" "SECURITY"

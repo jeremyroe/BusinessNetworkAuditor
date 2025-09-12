@@ -40,29 +40,41 @@ function Get-ProcessAnalysis {
                 Compliance = ""
             }
             
-            # Check for high CPU usage processes
+            # Check for high CPU usage processes - header + detail format
             $HighCPUProcesses = $Processes | Where-Object { $_.CPU -gt 60 } | Select-Object -First 5
-            foreach ($Process in $HighCPUProcesses) {
-                $ProcessName = $Process.ProcessName
-                $CPU = [math]::Round($Process.CPU, 2)
-                $Memory = [math]::Round($Process.WorkingSet64 / 1MB, 2)
-                $ProcessId = $Process.Id
+            if ($HighCPUProcesses.Count -gt 0) {
+                $HighestCPU = $HighCPUProcesses | Sort-Object CPU -Descending | Select-Object -First 1
+                $TopCPU = [math]::Round($HighestCPU.CPU, 2)
+                $CPURisk = if ($TopCPU -gt 300) { "HIGH" } elseif ($TopCPU -gt 120) { "MEDIUM" } else { "LOW" }
                 
-                $CPURisk = if ($CPU -gt 300) { "HIGH" } elseif ($CPU -gt 120) { "MEDIUM" } else { "LOW" }
-                $CPUCompliance = if ($CPU -gt 180) {
-                    "NIST: Investigate high CPU usage processes for performance impact"
-                } else { "" }
-                
+                # Header entry with compliance message
                 $Results += [PSCustomObject]@{
                     Category = "Processes"
-                    Item = "High CPU Process"
-                    Value = "$ProcessName (PID: $ProcessId)"
-                    Details = "CPU: $CPU seconds, Memory: $Memory MB"
+                    Item = "High CPU Processes"
+                    Value = "$($HighCPUProcesses.Count) processes detected"
+                    Details = "Processes using significant CPU time may impact system performance"
                     RiskLevel = $CPURisk
-                    Compliance = $CPUCompliance
+                    Compliance = if ($TopCPU -gt 180) { "Investigate high CPU usage processes for performance impact" } else { "" }
                 }
                 
-                Write-LogMessage "INFO" "High CPU process: $ProcessName - CPU: $CPU seconds, Memory: $Memory MB" "PROCESS"
+                # Individual detail entries without compliance duplication
+                foreach ($Process in $HighCPUProcesses) {
+                    $ProcessName = $Process.ProcessName
+                    $CPU = [math]::Round($Process.CPU, 2)
+                    $Memory = [math]::Round($Process.WorkingSet64 / 1MB, 2)
+                    $ProcessId = $Process.Id
+                    
+                    $Results += [PSCustomObject]@{
+                        Category = "Processes"
+                        Item = "High CPU Process"
+                        Value = "$ProcessName (PID: $ProcessId)"
+                        Details = "CPU: $CPU seconds, Memory: $Memory MB"
+                        RiskLevel = "INFO"
+                        Compliance = ""
+                    }
+                    
+                    Write-LogMessage "INFO" "High CPU process: $ProcessName - CPU: $CPU seconds, Memory: $Memory MB" "PROCESS"
+                }
             }
             
             Write-LogMessage "INFO" "Process analysis: $ProcessCount total, $($HighCPUProcesses.Count) high CPU" "PROCESS"
@@ -105,14 +117,14 @@ function Get-ProcessAnalysis {
                     $ServiceStatus = $Service.Status
                     $ServiceRisk = if ($ServiceStatus -ne "Running") { "HIGH" } else { "LOW" }
                     $ServiceCompliance = if ($ServiceStatus -ne "Running") {
-                        "NIST: Critical security service should be running"
+                        "Critical security service should be running"
                     } else { "" }
                     
                     $Results += [PSCustomObject]@{
                         Category = "Services"
-                        Item = "Security Service"
+                        Item = "$DisplayName"
                         Value = $ServiceStatus
-                        Details = "$DisplayName ($ServiceName)"
+                        Details = "Critical security service ($ServiceName)"
                         RiskLevel = $ServiceRisk
                         Compliance = $ServiceCompliance
                     }
@@ -121,11 +133,11 @@ function Get-ProcessAnalysis {
                 } else {
                     $Results += [PSCustomObject]@{
                         Category = "Services"
-                        Item = "Security Service"
+                        Item = "$DisplayName"
                         Value = "Not Found"
-                        Details = "$DisplayName ($ServiceName)"
+                        Details = "Critical security service ($ServiceName) not found"
                         RiskLevel = "MEDIUM"
-                        Compliance = "NIST: Security service not found - may indicate system compromise"
+                        Compliance = "Security service not found - may indicate system compromise"
                     }
                     
                     Write-LogMessage "WARN" "Security service not found: $DisplayName" "PROCESS"
@@ -140,13 +152,21 @@ function Get-ProcessAnalysis {
         
         # Analyze startup programs
         try {
-            # Check registry startup locations
+            # Check registry startup locations - system-wide and user-specific
             $StartupLocations = @(
                 "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Run",
-                "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce",
-                "HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Run",
-                "HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce"
+                "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce"
             )
+            
+            # Add user-specific entries only if not running as SYSTEM
+            if ($env:USERNAME -ne "SYSTEM") {
+                $StartupLocations += @(
+                    "HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Run",
+                    "HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce"
+                )
+            } else {
+                Write-LogMessage "INFO" "Running as SYSTEM - checking system-wide startup entries only" "PROCESS"
+            }
             
             $StartupPrograms = @()
             foreach ($Location in $StartupLocations) {
@@ -167,17 +187,17 @@ function Get-ProcessAnalysis {
                 }
             }
             
-            # Check startup folder
+            # Check startup folder (may be empty in system context)
             try {
                 $StartupFolder = [System.Environment]::GetFolderPath("Startup")
                 $CommonStartupFolder = [System.Environment]::GetFolderPath("CommonStartup")
                 
                 $StartupFiles = @()
-                if (Test-Path $StartupFolder) {
-                    $StartupFiles += Get-ChildItem -Path $StartupFolder -File
+                if ($StartupFolder -and (Test-Path $StartupFolder)) {
+                    $StartupFiles += Get-ChildItem -Path $StartupFolder -File -ErrorAction SilentlyContinue
                 }
-                if (Test-Path $CommonStartupFolder) {
-                    $StartupFiles += Get-ChildItem -Path $CommonStartupFolder -File
+                if ($CommonStartupFolder -and (Test-Path $CommonStartupFolder)) {
+                    $StartupFiles += Get-ChildItem -Path $CommonStartupFolder -File -ErrorAction SilentlyContinue
                 }
                 
                 foreach ($File in $StartupFiles) {
@@ -195,7 +215,7 @@ function Get-ProcessAnalysis {
             $StartupCount = $StartupPrograms.Count
             $StartupRisk = if ($StartupCount -gt 20) { "MEDIUM" } elseif ($StartupCount -gt 30) { "HIGH" } else { "LOW" }
             $StartupCompliance = if ($StartupCount -gt 25) {
-                "NIST: Large number of startup programs may impact boot time and security"
+                "Large number of startup programs may impact boot time and security"
             } else { "" }
             
             $Results += [PSCustomObject]@{
@@ -207,26 +227,27 @@ function Get-ProcessAnalysis {
                 Compliance = $StartupCompliance
             }
             
-            # Check for suspicious startup entries
-            $SuspiciousStartup = $StartupPrograms | Where-Object {
-                $_.Command -match "temp|tmp|appdata.*local.*temp|users.*public|system32.*drivers" -or
-                $_.Name -match "update|download|setup|install" -and $_.Name -notmatch "Microsoft|Windows|Intel|Adobe|Google"
+            # Check for startup entries from unusual locations
+            $UnusualLocationStartup = $StartupPrograms | Where-Object {
+                $_.Command -match "\\temp\\|\\tmp\\|\\appdata\\local\\temp\\|\\users\\public\\|\\downloads\\"
             }
             
-            foreach ($Suspicious in ($SuspiciousStartup | Select-Object -First 5)) {
-                $Results += [PSCustomObject]@{
-                    Category = "Startup"
-                    Item = "Suspicious Startup Entry"
-                    Value = $Suspicious.Name
-                    Details = "Command: $($Suspicious.Command), Location: $($Suspicious.Location)"
-                    RiskLevel = "MEDIUM"
-                    Compliance = "NIST: Investigate suspicious startup programs"
+            if ($UnusualLocationStartup.Count -gt 0) {
+                foreach ($Unusual in ($UnusualLocationStartup | Select-Object -First 5)) {
+                    $Results += [PSCustomObject]@{
+                        Category = "Startup"
+                        Item = "Startup from Unusual Location"
+                        Value = $Unusual.Name
+                        Details = "Running from: $($Unusual.Command). Programs should typically run from Program Files or system directories."
+                        RiskLevel = "HIGH"
+                        Compliance = "Investigate startup programs from temporary or unusual locations"
+                    }
+                    
+                    Write-LogMessage "WARN" "Startup from unusual location: $($Unusual.Name) - $($Unusual.Command)" "PROCESS"
                 }
-                
-                Write-LogMessage "WARN" "Suspicious startup entry: $($Suspicious.Name)" "PROCESS"
             }
             
-            Write-LogMessage "INFO" "Startup analysis: $StartupCount programs, $($SuspiciousStartup.Count) suspicious" "PROCESS"
+            Write-LogMessage "INFO" "Startup analysis: $StartupCount programs, $($UnusualLocationStartup.Count) from unusual locations" "PROCESS"
         }
         catch {
             Write-LogMessage "WARN" "Could not retrieve startup program information: $($_.Exception.Message)" "PROCESS"
@@ -250,7 +271,7 @@ function Get-ProcessAnalysis {
                 Value = "Memory: $MemoryUsagePercent% used"
                 Details = "Total RAM: $TotalMemoryGB GB, Processors: $ProcessorCount, Active processes: $ProcessCount"
                 RiskLevel = if ($MemoryUsagePercent -gt 85) { "HIGH" } elseif ($MemoryUsagePercent -gt 75) { "MEDIUM" } else { "LOW" }
-                Compliance = if ($MemoryUsagePercent -gt 80) { "NIST: High memory usage may impact system performance" } else { "" }
+                Compliance = if ($MemoryUsagePercent -gt 80) { "High memory usage may impact system performance" } else { "" }
             }
             
             Write-LogMessage "INFO" "System resources: $MemoryUsagePercent% memory used, $ProcessorCount processors" "PROCESS"
