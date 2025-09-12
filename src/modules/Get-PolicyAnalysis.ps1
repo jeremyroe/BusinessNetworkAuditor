@@ -171,12 +171,23 @@ function Get-PolicyAnalysis {
                             if ($SettingNames.Count -gt 0) {
                                 $AppliedPolicies += "$($CSP.Name) ($($SettingNames.Count) settings)"
                                 
-                                # Capture actual setting details for specific CSPs
+                                # Filter out technical metadata and capture meaningful settings
+                                $FilteredSettingNames = $SettingNames | Where-Object { 
+                                    $_ -notmatch "_ProviderSet$|_WinningProvider$|_LastWrite$|_Version$" 
+                                }
+                                
                                 $SettingDetails = @()
-                                foreach ($SettingName in ($SettingNames | Select-Object -First 8)) {
+                                foreach ($SettingName in ($FilteredSettingNames | Select-Object -First 8)) {
                                     $SettingValue = $CSPSettings.$SettingName
                                     if ($SettingValue -ne $null -and $SettingValue -ne "") {
-                                        $SettingDetails += "$SettingName=$SettingValue"
+                                        # Format boolean values more clearly
+                                        if ($SettingValue -eq "1") {
+                                            $SettingDetails += "$SettingName=Enabled"
+                                        } elseif ($SettingValue -eq "0") {
+                                            $SettingDetails += "$SettingName=Disabled"
+                                        } else {
+                                            $SettingDetails += "$SettingName=$SettingValue"
+                                        }
                                     } else {
                                         $SettingDetails += "$SettingName"
                                     }
@@ -184,7 +195,8 @@ function Get-PolicyAnalysis {
                                 $CSPDetailsMap[$CSP.Name] = @{
                                     Description = $CSP.Description
                                     Settings = $SettingDetails
-                                    Count = $SettingNames.Count
+                                    Count = $FilteredSettingNames.Count
+                                    TotalCount = $SettingNames.Count
                                 }
                                 
                                 Write-LogMessage "INFO" "$($CSP.Name) CSP policies found: $($SettingNames.Count) settings" "POLICY"

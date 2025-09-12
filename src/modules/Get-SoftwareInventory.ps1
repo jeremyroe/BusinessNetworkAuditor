@@ -71,7 +71,7 @@ function Get-SoftwareInventory {
                     Value = $Found.DisplayVersion
                     Details = "Install Date: $(if ($InstallDate) { $InstallDate.ToString('yyyy-MM-dd') } else { 'Unknown' }), Age: $(if ($AgeInDays) { "$AgeInDays days" } else { 'Unknown' })"
                     RiskLevel = $RiskLevel
-                    Compliance = if ($AgeInDays -gt 365) { "NIST: Regular software updates required" } else { "" }
+                    Compliance = if ($AgeInDays -gt 365) { "Regular software updates required" } else { "" }
                 }
             }
         }
@@ -92,6 +92,21 @@ function Get-SoftwareInventory {
             @{Name="Ammyy Admin"; Pattern="Ammyy"; Risk="HIGH"}
             @{Name="SupRemo"; Pattern="SupRemo"; Risk="MEDIUM"}
             @{Name="Radmin"; Pattern="Radmin"; Risk="MEDIUM"}
+            # Additional common enterprise remote access tools
+            @{Name="ScreenConnect"; Pattern="ScreenConnect|ConnectWise.*Control"; Risk="MEDIUM"}
+            @{Name="ConnectWise Control"; Pattern="ConnectWise.*Control|ScreenConnect"; Risk="MEDIUM"}
+            @{Name="BeyondTrust Remote Support"; Pattern="BeyondTrust|Bomgar"; Risk="MEDIUM"}
+            @{Name="Jump Desktop"; Pattern="Jump Desktop"; Risk="MEDIUM"}
+            @{Name="NoMachine"; Pattern="NoMachine"; Risk="MEDIUM"}
+            @{Name="Windows Remote Assistance"; Pattern="Remote Assistance"; Risk="MEDIUM"}
+            @{Name="Apple Remote Desktop"; Pattern="Apple Remote Desktop|ARD"; Risk="MEDIUM"}
+            @{Name="DameWare"; Pattern="DameWare"; Risk="MEDIUM"}
+            @{Name="pcAnywhere"; Pattern="pcAnywhere"; Risk="MEDIUM"}
+            @{Name="GoToAssist"; Pattern="GoToAssist"; Risk="MEDIUM"}
+            @{Name="RemotePC"; Pattern="RemotePC"; Risk="MEDIUM"}
+            @{Name="NinjaOne Remote"; Pattern="NinjaOne"; Risk="MEDIUM"}
+            @{Name="Zoho Assist"; Pattern="Zoho Assist"; Risk="MEDIUM"}
+            @{Name="LiteManager"; Pattern="LiteManager"; Risk="MEDIUM"}
         )
         
         $DetectedRemoteAccess = @()
@@ -116,7 +131,7 @@ function Get-SoftwareInventory {
                     Value = "$($App.DisplayName) - $($App.DisplayVersion)"
                     Details = "Remote access software detected. Install date: $(if ($InstallDate) { $InstallDate.ToString('yyyy-MM-dd') } else { 'Unknown' }). Review business justification and security controls."
                     RiskLevel = $RemoteApp.Risk
-                    Compliance = "NIST: Document and secure remote access tools"
+                    Compliance = "Document and secure remote access tools"
                 }
             }
         }
@@ -128,6 +143,75 @@ function Get-SoftwareInventory {
             Add-RawDataCollection -CollectionName "RemoteAccessSoftware" -Data $DetectedRemoteAccess
         } else {
             Write-LogMessage "INFO" "No remote access software detected" "SOFTWARE"
+        }
+        
+        # Check for RMM (Remote Monitoring and Management) software - investigation point
+        $RMMSoftware = @(
+            # ConnectWise Products
+            @{Name="ConnectWise Automate"; Pattern="ConnectWise.*Automate|LabTech|LTService"; Risk="MEDIUM"}
+            @{Name="ConnectWise Continuum"; Pattern="Continuum.*Agent|ConnectWise.*Continuum"; Risk="MEDIUM"}
+            
+            # Major RMM Platforms
+            @{Name="NinjaOne RMM"; Pattern="NinjaOne|NinjaRMM|NinjaAgent"; Risk="MEDIUM"}
+            @{Name="Kaseya VSA"; Pattern="Kaseya|AgentMon"; Risk="MEDIUM"}
+            @{Name="Datto RMM"; Pattern="Datto.*RMM|CentraStage|Autotask"; Risk="MEDIUM"}
+            @{Name="Atera"; Pattern="Atera.*Agent"; Risk="MEDIUM"}
+            @{Name="Syncro"; Pattern="Syncro.*Agent|RepairShopr"; Risk="MEDIUM"}
+            @{Name="Pulseway"; Pattern="Pulseway"; Risk="MEDIUM"}
+            @{Name="N-able RMM"; Pattern="N-able|SolarWinds.*RMM|N-central"; Risk="MEDIUM"}
+            @{Name="ManageEngine"; Pattern="ManageEngine|Desktop.*Central"; Risk="MEDIUM"}
+            
+            # Network Monitoring
+            @{Name="Auvik"; Pattern="Auvik"; Risk="MEDIUM"}
+            @{Name="PRTG"; Pattern="PRTG"; Risk="MEDIUM"}
+            @{Name="WhatsUp Gold"; Pattern="WhatsUp.*Gold"; Risk="MEDIUM"}
+            
+            # Security/Endpoint Management
+            @{Name="CrowdStrike"; Pattern="CrowdStrike|Falcon"; Risk="MEDIUM"}
+            @{Name="SentinelOne"; Pattern="SentinelOne|Sentinel.*Agent"; Risk="MEDIUM"}
+            @{Name="Huntress"; Pattern="Huntress"; Risk="MEDIUM"}
+            @{Name="Bitdefender GravityZone"; Pattern="Bitdefender.*Gravity|GravityZone"; Risk="MEDIUM"}
+            
+            # Legacy/Other
+            @{Name="LogMeIn Central"; Pattern="LogMeIn.*Central"; Risk="MEDIUM"}
+            @{Name="GoToAssist Corporate"; Pattern="GoToAssist.*Corporate"; Risk="MEDIUM"}
+            @{Name="Bomgar/BeyondTrust"; Pattern="Bomgar|BeyondTrust.*Remote"; Risk="MEDIUM"}
+        )
+        
+        $DetectedRMM = @()
+        foreach ($RMMApp in $RMMSoftware) {
+            $Found = $AllSoftware | Where-Object { $_.DisplayName -match $RMMApp.Pattern }
+            foreach ($App in $Found) {
+                $InstallDate = if ($App.InstallDate) { 
+                    try { [datetime]::ParseExact($App.InstallDate, "yyyyMMdd", $null) } catch { $null }
+                } else { $null }
+                
+                $DetectedRMM += [PSCustomObject]@{
+                    Name = $RMMApp.Name
+                    DisplayName = $App.DisplayName
+                    Version = $App.DisplayVersion
+                    InstallDate = $InstallDate
+                    Risk = $RMMApp.Risk
+                }
+                
+                $Results += [PSCustomObject]@{
+                    Category = "Software"
+                    Item = "RMM/Monitoring Software"
+                    Value = "$($App.DisplayName) - $($App.DisplayVersion)"
+                    Details = "RMM/monitoring software detected. Install date: $(if ($InstallDate) { $InstallDate.ToString('yyyy-MM-dd') } else { 'Unknown' }). Review management authorization and security controls."
+                    RiskLevel = $RMMApp.Risk
+                    Compliance = "Document and authorize remote monitoring tools"
+                }
+            }
+        }
+        
+        if ($DetectedRMM.Count -gt 0) {
+            Write-LogMessage "WARN" "RMM/monitoring software detected: $(($DetectedRMM | Select-Object -ExpandProperty Name) -join ', ')" "SOFTWARE"
+            
+            # Add to raw data collection
+            Add-RawDataCollection -CollectionName "RMMSoftware" -Data $DetectedRMM
+        } else {
+            Write-LogMessage "INFO" "No RMM/monitoring software detected" "SOFTWARE"
         }
         
         # Add all software to raw data collection for detailed export
