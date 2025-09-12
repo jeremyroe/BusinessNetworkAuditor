@@ -17,3 +17,7 @@ temp/
 # System files
 .DS_Store
 Thumbs.db
+
+# Session tracking (excluded from repo)
+session_activity.log
+*.activity
