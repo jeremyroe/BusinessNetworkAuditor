@@ -37,7 +37,7 @@ function Get-DiskSpaceAnalysis {
                         else { "LOW" }
             
             $Compliance = if ($FreeSpacePercent -lt 15) { 
-                "NIST: Maintain adequate free disk space for system operations" 
+                "Maintain adequate free disk space for system operations" 
             } else { "" }
             
             $Results += [PSCustomObject]@{
@@ -62,7 +62,7 @@ function Get-DiskSpaceAnalysis {
                 
                 $HealthRisk = if ($DiskStatus -ne "OK") { "HIGH" } else { "LOW" }
                 $HealthCompliance = if ($DiskStatus -ne "OK") { 
-                    "NIST: Monitor disk health and replace failing drives" 
+                    "Monitor disk health and replace failing drives" 
                 } else { "" }
                 
                 $Results += [PSCustomObject]@{

@@ -38,11 +38,15 @@ function Get-PatchStatus {
                 Set-ExecutionPolicy RemoteSigned -Scope Process -Force
                 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
                 
-                # Install NuGet provider automatically to avoid prompts
-                Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 -Force -Scope CurrentUser
+                # Install NuGet provider automatically to avoid prompts  
+                # Use AllUsers scope if running as SYSTEM, CurrentUser otherwise
+                $InstallScope = if ($env:USERNAME -eq "SYSTEM") { "AllUsers" } else { "CurrentUser" }
+                Write-LogMessage "INFO" "Installing NuGet and PSWindowsUpdate with scope: $InstallScope" "PATCHES"
+                
+                Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 -Force -Scope $InstallScope
                 Set-PSRepository -Name PSGallery -InstallationPolicy Trusted
                 
-                Install-Module PSWindowsUpdate -Force -Scope CurrentUser -SkipPublisherCheck
+                Install-Module PSWindowsUpdate -Force -Scope $InstallScope -SkipPublisherCheck
             }
             Import-Module PSWindowsUpdate -Force
             $PSWUAvailable = $true
@@ -103,7 +107,7 @@ function Get-PatchStatus {
                     Value = "$TotalPending total"
                     Details = $StatusDetails
                     RiskLevel = if ($CriticalInProgress.Count -gt 0) { "HIGH" } elseif ($InProgressUpdates.Count -gt 0) { "HIGH" } elseif ($AvailableUpdates.Count -gt 0) { "MEDIUM" } else { "LOW" }
-                    Compliance = if ($CriticalInProgress.Count -gt 0) { "CRITICAL: Restart required for critical updates" } elseif ($InProgressUpdates.Count -gt 0) { "NIST: Restart required to complete updates" } else { "" }
+                    Compliance = if ($CriticalInProgress.Count -gt 0) { "CRITICAL: Restart required for critical updates" } elseif ($InProgressUpdates.Count -gt 0) { "Restart required to complete updates" } else { "" }
                 }
                 
                 # Critical updates requiring reboot
@@ -127,7 +131,7 @@ function Get-PatchStatus {
                         Value = "Yes"
                         Details = "System restart needed to complete $($InProgressUpdates.Count) updates"
                         RiskLevel = "HIGH"
-                        Compliance = "NIST: Restart system to complete update installation"
+                        Compliance = "Restart system to complete update installation"
                     }
                 }
                 
@@ -139,7 +143,7 @@ function Get-PatchStatus {
                         Value = "$($AvailableUpdates.Count) updates"
                         Details = "Updates available for download and installation"
                         RiskLevel = "MEDIUM"
-                        Compliance = "NIST: Install available updates within 30 days"
+                        Compliance = "Install available updates within 30 days"
                     }
                 }
                 
@@ -157,7 +161,7 @@ function Get-PatchStatus {
                 Value = "Module Failed"
                 Details = "PSWindowsUpdate module could not be loaded - manual verification required"
                 RiskLevel = "MEDIUM"
-                Compliance = "NIST: Manually verify patch status"
+                Compliance = "Manually verify patch status"
             }
         }
         
@@ -174,7 +178,7 @@ function Get-PatchStatus {
                 Value = $RecentHotfixes.Count
                 Details = "Hotfixes installed in last 90 days"
                 RiskLevel = if ($RecentHotfixes.Count -eq 0) { "HIGH" } elseif ($RecentHotfixes.Count -lt 5) { "MEDIUM" } else { "LOW" }
-                Compliance = if ($RecentHotfixes.Count -eq 0) { "NIST: No recent patches detected - verify update process" } else { "" }
+                Compliance = if ($RecentHotfixes.Count -eq 0) { "No recent patches detected - verify update process" } else { "" }
             }
         }
         catch {
@@ -201,7 +205,7 @@ function Get-PatchStatus {
                 Value = "$UptimeDays days"
                 Details = "Last boot: $($LastBootTime.ToString('yyyy-MM-dd HH:mm:ss'))"
                 RiskLevel = if ($UptimeDays -gt 30) { "MEDIUM" } elseif ($UptimeDays -gt 60) { "HIGH" } else { "LOW" }
-                Compliance = if ($UptimeDays -gt 30) { "NIST: Consider regular restarts for patch application" } else { "" }
+                Compliance = if ($UptimeDays -gt 30) { "Consider regular restarts for patch application" } else { "" }
             }
         }
         catch {
@@ -217,7 +221,7 @@ function Get-PatchStatus {
                 Value = $UpdateService.Status
                 Details = "Service startup type: $($UpdateService.StartType)"
                 RiskLevel = if ($UpdateService.Status -eq "Running") { "LOW" } elseif ($UpdateService.Status -eq "Stopped" -and $UpdateService.StartType -eq "Manual") { "LOW" } else { "HIGH" }
-                Compliance = if ($UpdateService.Status -ne "Running" -and $UpdateService.StartType -eq "Disabled") { "NIST: Windows Update service should not be permanently disabled" } else { "" }
+                Compliance = if ($UpdateService.Status -ne "Running" -and $UpdateService.StartType -eq "Disabled") { "Windows Update service should not be permanently disabled" } else { "" }
             }
         }
         catch {
@@ -251,7 +255,7 @@ function Get-PatchStatus {
                     Value = $AUOptions
                     Details = "Registry AUOptions: $($AutoUpdateConfig.AUOptions)"
                     RiskLevel = if ($AutoUpdateConfig.AUOptions -in @(3,4)) { "LOW" } elseif ($AutoUpdateConfig.AUOptions -eq 2) { "MEDIUM" } else { "HIGH" }
-                    Compliance = if ($AutoUpdateConfig.AUOptions -eq 1) { "NIST: Automatic updates should be enabled" } else { "" }
+                    Compliance = if ($AutoUpdateConfig.AUOptions -eq 1) { "Automatic updates should be enabled" } else { "" }
                 }
             } else {
                 $Results += [PSCustomObject]@{

@@ -100,7 +100,7 @@ function Get-NetworkAnalysis {
                         }
                         
                         $IPCompliance = if (-not $DHCPEnabled -and $IPType -eq "IPv4") {
-                            "NIST: Static IP configuration should be documented and managed"
+                            "Static IP configuration should be documented and managed"
                         } else { "" }
                         
                         $GatewayInfo = if ($DefaultGateways) { "Gateway: $($DefaultGateways[0])" } else { "No gateway" }
@@ -130,7 +130,7 @@ function Get-NetworkAnalysis {
                     
                     if ($HasPublicDNS) {
                         $DNSRisk = "MEDIUM"
-                        $DNSCompliance = "NIST: Consider using internal DNS servers for better security control"
+                        $DNSCompliance = "Consider using internal DNS servers for better security control"
                     }
                     
                     $Results += [PSCustomObject]@{
@@ -167,9 +167,9 @@ function Get-NetworkAnalysis {
                        else { "LOW" }
             
             $PortCompliance = if ($OpenRiskyPorts.Count -gt 0) {
-                "NIST: Review open ports for security risks - found potentially risky ports"
+                "Review open ports for security risks - found potentially risky ports"
             } elseif ($TCPPortCount -gt 50) {
-                "NIST: Large number of open ports may increase attack surface"
+                "Large number of open ports may increase attack surface"
             } else { "" }
             
             $Results += [PSCustomObject]@{
@@ -181,41 +181,54 @@ function Get-NetworkAnalysis {
                 Compliance = $PortCompliance
             }
             
-            # Detail risky ports if found (deduplicate by port number)
+            # Detail risky ports if found - header + detail format
             $UniqueRiskyPorts = $OpenRiskyPorts | Group-Object LocalPort | ForEach-Object { $_.Group[0] }
-            foreach ($RiskyPort in $UniqueRiskyPorts) {
-                $PortNumber = $RiskyPort.LocalPort
-                $ProcessId = $RiskyPort.OwningProcess
-                $ProcessName = if ($ProcessId) {
-                    try { (Get-Process -Id $ProcessId -ErrorAction SilentlyContinue).ProcessName }
-                    catch { "Unknown" }
-                } else { "Unknown" }
-                
-                $ServiceName = switch ($PortNumber) {
-                    21 { "FTP" }
-                    23 { "Telnet" }
-                    135 { "RPC Endpoint Mapper" }
-                    139 { "NetBIOS Session Service" }
-                    445 { "SMB/CIFS" }
-                    1433 { "SQL Server" }
-                    1521 { "Oracle Database" }
-                    3306 { "MySQL" }
-                    3389 { "Remote Desktop" }
-                    5432 { "PostgreSQL" }
-                    5900 { "VNC" }
-                    default { "Unknown Service" }
-                }
-                
+            if ($UniqueRiskyPorts.Count -gt 0) {
+                # Header entry with compliance message
                 $Results += [PSCustomObject]@{
                     Category = "Network"
-                    Item = "Risky Open Port"
-                    Value = "Port $PortNumber ($ServiceName)"
-                    Details = "Process: $ProcessName (PID: $ProcessId)"
+                    Item = "Risky Open Ports"
+                    Value = "$($UniqueRiskyPorts.Count) high-risk ports detected"
+                    Details = "Network services that may present security risks"
                     RiskLevel = "HIGH"
-                    Compliance = "NIST: Secure or disable unnecessary network services"
+                    Compliance = "Secure or disable unnecessary network services"
                 }
                 
-                Write-LogMessage "WARN" "Risky port open: $PortNumber ($ServiceName) - Process: $ProcessName" "NETWORK"
+                # Individual detail entries without compliance duplication
+                foreach ($RiskyPort in $UniqueRiskyPorts) {
+                    $PortNumber = $RiskyPort.LocalPort
+                    $ProcessId = $RiskyPort.OwningProcess
+                    $ProcessName = if ($ProcessId) {
+                        try { (Get-Process -Id $ProcessId -ErrorAction SilentlyContinue).ProcessName }
+                        catch { "Unknown" }
+                    } else { "Unknown" }
+                    
+                    $ServiceName = switch ($PortNumber) {
+                        21 { "FTP" }
+                        23 { "Telnet" }
+                        135 { "RPC Endpoint Mapper" }
+                        139 { "NetBIOS Session Service" }
+                        445 { "SMB/CIFS" }
+                        1433 { "SQL Server" }
+                        1521 { "Oracle Database" }
+                        3306 { "MySQL" }
+                        3389 { "Remote Desktop" }
+                        5432 { "PostgreSQL" }
+                        5900 { "VNC" }
+                        default { "Unknown Service" }
+                    }
+                    
+                    $Results += [PSCustomObject]@{
+                        Category = "Network"
+                        Item = "Port $PortNumber"
+                        Value = "$ServiceName"
+                        Details = "Process: $ProcessName (PID: $ProcessId)"
+                        RiskLevel = "INFO"
+                        Compliance = ""
+                    }
+                    
+                    Write-LogMessage "WARN" "Risky port open: $PortNumber ($ServiceName) - Process: $ProcessName" "NETWORK"
+                }
             }
             
             $UniqueRiskyCount = ($UniqueRiskyPorts | Measure-Object).Count
@@ -268,7 +281,7 @@ function Get-NetworkAnalysis {
                     Value = $RDPStatus
                     Details = "RDP is accessible$PortText. This provides remote access to the system and should be secured with strong authentication, network restrictions, and monitoring."
                     RiskLevel = "HIGH"
-                    Compliance = "NIST: Secure remote access - use VPN, strong auth, restrict source IPs, enable logging"
+                    Compliance = "Secure remote access - use VPN, strong auth, restrict source IPs, enable logging"
                 }
                 
                 Write-LogMessage "WARN" "RDP detected: $RDPStatus on port $RDPPort" "NETWORK"
@@ -300,7 +313,7 @@ function Get-NetworkAnalysis {
                         else { "LOW" }
             
             $ShareCompliance = if ($UserShares.Count -gt 0) {
-                "NIST: Review network share permissions and access controls"
+                "Review network share permissions and access controls"
             } else { "" }
             
             $Results += [PSCustomObject]@{
@@ -323,7 +336,7 @@ function Get-NetworkAnalysis {
                     Value = $ShareName
                     Details = "Path: $SharePath, Description: $ShareDescription"
                     RiskLevel = "MEDIUM"
-                    Compliance = "NIST: Ensure proper access controls and monitoring for network shares"
+                    Compliance = "Ensure proper access controls and monitoring for network shares"
                 }
                 
                 Write-LogMessage "INFO" "Network share: $ShareName -> $SharePath" "NETWORK"
@@ -346,7 +359,7 @@ function Get-NetworkAnalysis {
             
             $DiscoveryRisk = if ($DiscoveryEnabled) { "MEDIUM" } else { "LOW" }
             $DiscoveryCompliance = if ($DiscoveryEnabled) {
-                "NIST: Network discovery should be disabled on untrusted networks"
+                "Network discovery should be disabled on untrusted networks"
             } else { "" }
             
             $Results += [PSCustomObject]@{
@@ -360,7 +373,7 @@ function Get-NetworkAnalysis {
             
             $SharingRisk = if ($FileSharingEnabled) { "MEDIUM" } else { "LOW" }
             $SharingCompliance = if ($FileSharingEnabled) {
-                "NIST: File sharing should be carefully controlled and monitored"
+                "File sharing should be carefully controlled and monitored"
             } else { "" }
             
             $Results += [PSCustomObject]@{
@@ -390,7 +403,7 @@ function Get-NetworkAnalysis {
                     Value = "$ProfileCount saved profiles"
                     Details = "Saved wireless network configurations"
                     RiskLevel = "MEDIUM"
-                    Compliance = "NIST: Review wireless network profiles and remove unused ones"
+                    Compliance = "Review wireless network profiles and remove unused ones"
                 }
                 
                 Write-LogMessage "INFO" "Wireless profiles: $ProfileCount saved" "NETWORK"

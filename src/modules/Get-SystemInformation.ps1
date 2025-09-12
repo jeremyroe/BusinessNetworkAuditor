@@ -151,7 +151,7 @@ function Get-SystemInformation {
             Value = $DomainName
             Details = $DomainDetails
             RiskLevel = if ($AzureADJoined -or $DomainJoined) { "LOW" } else { "MEDIUM" }
-            Compliance = if (-not $AzureADJoined -and -not $DomainJoined) { "NIST: Consider domain or Azure AD joining for centralized management" } else { "" }
+            Compliance = if (-not $AzureADJoined -and -not $DomainJoined) { "Consider domain or Azure AD joining for centralized management" } else { "" }
         }
         
         # WSUS Configuration Status
@@ -172,7 +172,7 @@ function Get-SystemInformation {
                 Value = if ($MDMEnrolled) { "Enrolled" } else { "Not Enrolled" }
                 Details = if ($MDMEnrolled) { "Device enrolled in Mobile Device Management" } else { "Device not enrolled in MDM" }
                 RiskLevel = if ($MDMEnrolled) { "LOW" } else { "MEDIUM" }
-                Compliance = if (-not $MDMEnrolled) { "NIST: Consider MDM enrollment for device management" } else { "" }
+                Compliance = if (-not $MDMEnrolled) { "Consider MDM enrollment for device management" } else { "" }
             }
         }
         

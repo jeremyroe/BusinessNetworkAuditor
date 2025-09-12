@@ -38,7 +38,7 @@ function Get-MemoryAnalysis {
                           else { "LOW" }
         
         $MemoryCompliance = if ($MemoryUsagePercent -gt 80) {
-            "NIST: High memory usage may impact system performance"
+            "High memory usage may impact system performance"
         } else { "" }
         
         $Results += [PSCustomObject]@{
@@ -73,7 +73,7 @@ function Get-MemoryAnalysis {
                         Value = "$PageFileUsagePercent% used"
                         Details = "Page File: $($PageFile.Name), Size: $PageFileSizeGB GB, Used: $PageFileUsedGB GB"
                         RiskLevel = $PageFileRisk
-                        Compliance = if ($PageFileUsagePercent -gt 70) { "NIST: Monitor virtual memory usage" } else { "" }
+                        Compliance = if ($PageFileUsagePercent -gt 70) { "Monitor virtual memory usage" } else { "" }
                     }
                     
                     Write-LogMessage "INFO" "Page File $($PageFile.Name): $PageFileUsagePercent% used ($PageFileUsedGB GB / $PageFileSizeGB GB)" "MEMORY"
@@ -85,7 +85,7 @@ function Get-MemoryAnalysis {
                     Value = "No page file configured"
                     Details = "System has no virtual memory page file"
                     RiskLevel = "MEDIUM"
-                    Compliance = "NIST: Consider configuring virtual memory for system stability"
+                    Compliance = "Consider configuring virtual memory for system stability"
                 }
                 Write-LogMessage "WARN" "No page file configured on system" "MEMORY"
             }
@@ -108,7 +108,7 @@ function Get-MemoryAnalysis {
                 Value = "$AvailableMB MB available"
                 Details = "System has $AvailableMB MB available for allocation"
                 RiskLevel = if ($AvailableMB -lt 512) { "HIGH" } elseif ($AvailableMB -lt 1024) { "MEDIUM" } else { "LOW" }
-                Compliance = if ($AvailableMB -lt 1024) { "NIST: Low available memory may impact performance" } else { "" }
+                Compliance = if ($AvailableMB -lt 1024) { "Low available memory may impact performance" } else { "" }
             }
             
             $Results += [PSCustomObject]@{

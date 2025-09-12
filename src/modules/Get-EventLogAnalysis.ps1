@@ -57,7 +57,7 @@ function Get-EventLogAnalysis {
                 
                 $SecurityRisk = if ($SecurityUsagePercent -gt 90) { "HIGH" } elseif ($SecurityUsagePercent -gt 75) { "MEDIUM" } else { "LOW" }
                 $SecurityCompliance = if ($SecurityUsagePercent -gt 85) {
-                    "NIST: Security event log approaching capacity - consider archiving"
+                    "Security event log approaching capacity - consider archiving"
                 } else { "" }
                 
                 $Results += [PSCustomObject]@{
@@ -117,25 +117,25 @@ function Get-EventLogAnalysis {
                     # Special handling for high-frequency events
                     if ($EventID -eq 4625 -and $EventCount -gt 50) {  # Multiple failed logons
                         $RiskLevel = "HIGH"
-                        $Compliance = "NIST: Investigate multiple failed logon attempts - possible brute force attack"
+                        $Compliance = "Investigate multiple failed logon attempts - possible brute force attack"
                     }
                     elseif ($EventID -eq 4740 -and $EventCount -gt 5) {  # Multiple account lockouts
                         $RiskLevel = "HIGH"
-                        $Compliance = "NIST: Multiple account lockouts may indicate attack or policy issues"
+                        $Compliance = "Multiple account lockouts may indicate attack or policy issues"
                     }
                     elseif ($EventID -eq 6008 -and $EventCount -gt 3) {  # Multiple unexpected shutdowns
                         $RiskLevel = "HIGH"
-                        $Compliance = "NIST: Multiple unexpected shutdowns may indicate system instability"
+                        $Compliance = "Multiple unexpected shutdowns may indicate system instability"
                     }
                     elseif ($EventID -eq 7034 -and $EventCount -gt 10) {  # Multiple service crashes
                         $RiskLevel = "HIGH"
-                        $Compliance = "NIST: Multiple service crashes may indicate system problems"
+                        $Compliance = "Multiple service crashes may indicate system problems"
                     }
                     elseif ($EventID -eq 4625) {
-                        $Compliance = "NIST: Monitor failed logon attempts for security threats"
+                        $Compliance = "Monitor failed logon attempts for security threats"
                     }
                     elseif ($EventID -eq 4672) {
-                        $Compliance = "NIST: Monitor special privilege assignments for unauthorized elevation"
+                        $Compliance = "Monitor special privilege assignments for unauthorized elevation"
                     }
                     
                     $Results += [PSCustomObject]@{
@@ -177,7 +177,7 @@ function Get-EventLogAnalysis {
                         Value = "$ThreatCount threats detected"
                         Details = "Threat detection events in last 7 days"
                         RiskLevel = "HIGH"
-                        Compliance = "NIST: Investigate and remediate detected security threats"
+                        Compliance = "Investigate and remediate detected security threats"
                     }
                     Write-LogMessage "WARN" "Windows Defender: $ThreatCount threats detected in last 7 days" "EVENTLOG"
                 } else {
@@ -221,9 +221,9 @@ function Get-EventLogAnalysis {
                 
                 $PSRisk = if ($SuspiciousPS.Count -gt 0) { "HIGH" } elseif ($PSEventCount -gt 100) { "MEDIUM" } else { "LOW" }
                 $PSCompliance = if ($SuspiciousPS.Count -gt 0) {
-                    "NIST: Investigate suspicious PowerShell execution patterns"
+                    "Investigate suspicious PowerShell execution patterns"
                 } elseif ($PSEventCount -gt 100) {
-                    "NIST: High PowerShell usage - review for legitimate business needs"
+                    "High PowerShell usage - review for legitimate business needs"
                 } else { "" }
                 
                 # Build detailed suspicious patterns description
@@ -287,7 +287,7 @@ function Get-EventLogAnalysis {
                 $USBCount = $USBEvents.Count
                 $USBRisk = if ($USBCount -gt 20) { "MEDIUM" } else { "LOW" }
                 $USBCompliance = if ($USBCount -gt 10) {
-                    "NIST: Monitor USB device usage for data loss prevention"
+                    "Monitor USB device usage for data loss prevention"
                 } else { "" }
                 
                 $Results += [PSCustomObject]@{

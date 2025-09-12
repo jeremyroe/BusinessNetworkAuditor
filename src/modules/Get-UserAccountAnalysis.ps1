@@ -28,7 +28,9 @@ function Get-UserAccountAnalysis {
     try {
         $LocalAdmins = @()
         
-        Write-LogMessage "INFO" "Current user: $env:USERNAME" "USERS"
+        # Determine execution context
+        $CurrentUser = if ($env:USERNAME -eq "SYSTEM") { "SYSTEM" } else { $env:USERNAME }
+        Write-LogMessage "INFO" "Current user: $CurrentUser" "USERS"
         
         # Check if current user is admin
         $IsCurrentUserAdmin = $false
@@ -119,7 +121,7 @@ function Get-UserAccountAnalysis {
             Value = $AdminCount
             Details = "Users: $($LocalAdmins -join ', ')"
             RiskLevel = if ($AdminCount -gt 3) { "HIGH" } elseif ($AdminCount -gt 1) { "MEDIUM" } else { "LOW" }
-            Compliance = if ($AdminCount -gt 3) { "NIST: Limit administrative access" } else { "" }
+            Compliance = if ($AdminCount -gt 3) { "Limit administrative access" } else { "" }
         }
         
         # Guest Account Status
@@ -131,7 +133,7 @@ function Get-UserAccountAnalysis {
                 Value = if ($GuestAccount.Disabled) { "Disabled" } else { "Enabled" }
                 Details = "Guest account status"
                 RiskLevel = if ($GuestAccount.Disabled) { "LOW" } else { "HIGH" }
-                Compliance = if (-not $GuestAccount.Disabled) { "NIST/HIPAA: Disable guest account" } else { "" }
+                Compliance = if (-not $GuestAccount.Disabled) { "Disable guest account" } else { "" }
             }
         }
         

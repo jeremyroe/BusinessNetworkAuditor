@@ -29,7 +29,7 @@ function Get-PrinterAnalysis {
             if ($SpoolerService) {
                 $SpoolerRisk = if ($SpoolerService.Status -ne "Running") { "HIGH" } else { "LOW" }
                 $SpoolerCompliance = if ($SpoolerService.Status -ne "Running") {
-                    "NIST: Print Spooler service should be running for proper printer functionality"
+                    "Print Spooler service should be running for proper printer functionality"
                 } else { "" }
                 
                 $Results += [PSCustomObject]@{
@@ -110,9 +110,9 @@ function Get-PrinterAnalysis {
                     }
                     
                     $PrinterCompliance = if ($PrinterStatus -eq 7) {
-                        "NIST: Offline printers should be investigated and restored"
+                        "Offline printers should be investigated and restored"
                     } elseif ($PrinterStatus -eq 6) {
-                        "NIST: Stopped printers may indicate driver or connectivity issues"
+                        "Stopped printers may indicate driver or connectivity issues"
                     } else { "" }
                     
                     $PrinterType = if ($IsNetworkPrinter) { "Network" } else { "Local" }
@@ -121,8 +121,8 @@ function Get-PrinterAnalysis {
                     $Results += [PSCustomObject]@{
                         Category = "Printing"
                         Item = "Printer$DefaultIndicator"
-                        Value = $StatusText
-                        Details = "$PrinterType printer: $PrinterName, Driver: $DriverName, Port: $PortName"
+                        Value = "$PrinterName"
+                        Details = "Type: $PrinterType, Status: $StatusText, Driver: $DriverName"
                         RiskLevel = $PrinterRisk
                         Compliance = $PrinterCompliance
                     }
@@ -158,28 +158,10 @@ function Get-PrinterAnalysis {
                 $Results += [PSCustomObject]@{
                     Category = "Printing"
                     Item = "Printer Drivers"
-                    Value = "$UniqueDrivers unique drivers"
+                    Value = "$UniqueDrivers unique drivers installed"
                     Details = "Total driver installations: $DriverCount"
                     RiskLevel = "INFO"
                     Compliance = ""
-                }
-                
-                # Check for potentially outdated or problematic drivers
-                $OldDrivers = $PrinterDrivers | Where-Object { 
-                    $_.Version -and $_.Version.ToString() -match "^\d+" -and [int]($_.Version.ToString().Split('.')[0]) -lt 6 
-                } | Measure-Object | Select-Object -ExpandProperty Count
-                
-                if ($OldDrivers -gt 0) {
-                    $Results += [PSCustomObject]@{
-                        Category = "Printing"
-                        Item = "Legacy Printer Drivers"
-                        Value = "$OldDrivers potentially outdated drivers"
-                        Details = "Drivers with version numbers suggesting they may be outdated"
-                        RiskLevel = "MEDIUM"
-                        Compliance = "NIST: Keep printer drivers updated to latest versions for security"
-                    }
-                    
-                    Write-LogMessage "WARN" "Found $OldDrivers potentially outdated printer drivers" "PRINTER"
                 }
                 
                 Write-LogMessage "INFO" "Printer Drivers: $UniqueDrivers unique drivers, $DriverCount total installations" "PRINTER"
@@ -203,7 +185,7 @@ function Get-PrinterAnalysis {
                     
                     $PortRisk = if (-not $SNMPEnabled -and $Port.Protocol -eq 1) { "MEDIUM" } else { "LOW" }
                     $PortCompliance = if (-not $SNMPEnabled -and $Port.Protocol -eq 1) {
-                        "NIST: Consider enabling SNMP for better printer monitoring"
+                        "Consider enabling SNMP for better printer monitoring"
                     } else { "" }
                     
                     $Results += [PSCustomObject]@{
@@ -233,9 +215,9 @@ function Get-PrinterAnalysis {
                 
                 $QueueRisk = if ($StuckJobs -gt 0) { "MEDIUM" } elseif ($JobCount -gt 10) { "MEDIUM" } else { "LOW" }
                 $QueueCompliance = if ($StuckJobs -gt 0) {
-                    "NIST: Clear stuck print jobs to maintain system performance"
+                    "Clear stuck print jobs to maintain system performance"
                 } elseif ($JobCount -gt 10) {
-                    "NIST: Large print queue may indicate printer or network issues"
+                    "Large print queue may indicate printer or network issues"
                 } else { "" }
                 
                 $Results += [PSCustomObject]@{

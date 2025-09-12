@@ -1,38 +1,52 @@
-# WindowsWorkstationAuditor
+# BusinessNetworkAuditor
 
-A comprehensive PowerShell-based security audit tool for Windows workstations and servers. Performs detailed security assessments with professional reporting and compliance mapping.
+A comprehensive PowerShell-based security audit tool for Windows workstations and servers. Performs detailed security assessments with professional reporting focused on actionable security findings and investigation points.
 
 ## Features
 
-### 🔍 **Comprehensive Security Analysis**
-- **System Information**: OS details, hardware specs, domain status, Azure AD/MDM enrollment
-- **User Account Analysis**: Local administrators, account policies, privilege escalation risks
-- **Software Inventory**: Complete application catalog with versions, publishers, and install dates
-- **Security Settings**: Antivirus detection, firewall status, Windows Defender configuration
+### **Comprehensive Security Analysis**
+- **System Information**: OS details, hardware specs, domain status, Azure AD/MDM enrollment detection
+- **User Account Analysis**: Local administrators, account policies, dormant accounts, privilege risks
+- **Software Inventory**: Complete application catalog with remote access and RMM tool detection
+- **Security Settings**: Multi-AV detection, firewall status, BitLocker encryption analysis
 - **Patch Management**: Update status, available patches, security update compliance
-- **Policy Analysis**: Password policies, audit settings, Group Policy configuration
-- **Network Security**: Open ports, network shares, adapter configuration, DNS settings
-- **Process Analysis**: Running processes, services, startup programs, resource usage
+- **Policy Analysis**: Domain GPO vs MDM vs Local policy separation with actual setting values
+- **Network Security**: Risky open ports, network shares, adapter configuration, DNS settings
+- **Process Analysis**: High CPU processes, running services, memory analysis
 - **Event Log Analysis**: Security events, PowerShell execution patterns, threat indicators
 - **Storage Analysis**: Disk usage, health status, capacity planning
 
-### 🛡️ **Enhanced Antivirus Detection**
-Detects and analyzes multiple antivirus solutions:
-- **Enterprise EDR**: SentinelOne, CrowdStrike, Carbon Black, Cortex XDR
-- **Traditional AV**: McAfee, Symantec/Norton, Trend Micro, Kaspersky, Bitdefender
-- **Consumer Products**: Avast, AVG, Webroot, Malwarebytes, F-Secure
-- **Built-in Protection**: Windows Defender with detailed status and configuration
+### **Enhanced Security Detection**
 
-### 📊 **Professional Reporting**
-- **Technician Reports**: Clean markdown format with prioritized action items
-- **Raw Data Export**: Comprehensive JSON for aggregation tools and analytics
-- **Risk Assessment**: HIGH/MEDIUM/LOW/INFO risk levels with compliance mapping
-- **Executive Summary**: At-a-glance security posture with risk counts
+**Multi-AV Environment Analysis**: Detects and analyzes 20+ antivirus solutions with proper Windows Defender logic for multi-AV environments.
 
-### 🏛️ **Compliance Framework Support**
-- **NIST**: Cybersecurity Framework mapping for security controls
-- **HIPAA**: Healthcare compliance requirements where applicable
-- **Custom**: Extensible framework for additional compliance standards
+**Remote Access Software Detection (27+ tools)**:
+- TeamViewer, AnyDesk, VNC variants, Chrome Remote Desktop
+- ScreenConnect/ConnectWise Control, BeyondTrust, Jump Desktop
+- LogMeIn, Splashtop, Parsec, GoToMyPC and more
+
+**RMM/Monitoring Platform Detection (19+ platforms)**:  
+- ConnectWise Automate, NinjaRMM, Kaseya VSA, Datto RMM
+- N-able, Atera, Syncro, Pulseway, ManageEngine
+- Security platforms: CrowdStrike, SentinelOne, Huntress
+
+**BitLocker Encryption Analysis**:
+- Drive encryption status per volume
+- Key escrow detection (Azure AD vs Active Directory)
+- Recovery key backup verification
+
+### **Professional Reporting**
+- **Technician Reports**: Clean markdown format with header+detail organization to prevent duplication
+- **Raw Data Export**: Comprehensive JSON with detailed software inventories and investigation points
+- **Risk Assessment**: HIGH/MEDIUM/LOW/INFO risk levels with actionable compliance recommendations
+- **Executive Summary**: At-a-glance security posture with risk counts and priority actions
+- **Investigation Points**: Flagged items requiring security team review (remote access tools, RMM, etc.)
+
+### **Flexible Deployment**
+- **Local Execution**: Full modular architecture with configuration management
+- **Web Execution**: Single-file deployment via PowerShell one-liner for rapid assessment
+- **System Context**: Handles both user and SYSTEM execution contexts appropriately
+- **Enterprise Ready**: Git workflow integration, comprehensive logging, error handling
 
 ## Quick Start
 
@@ -45,7 +59,7 @@ Detects and analyzes multiple antivirus solutions:
 
 ```powershell
 # Clone the repository
-git clone https://github.com/your-org/BusinessNetworkAuditor.git
+git clone https://github.com/jeremyroe/BusinessNetworkAuditor.git
 cd BusinessNetworkAuditor
 
 # Run the audit
@@ -54,19 +68,34 @@ cd BusinessNetworkAuditor
 # Custom output location
 .\src\WindowsWorkstationAuditor.ps1 -OutputPath "C:\SecurityAudits"
 
-# Force run on Windows Server (not recommended)
-.\src\WindowsWorkstationAuditor.ps1 -Force
+# Verbose logging
+.\src\WindowsWorkstationAuditor.ps1 -Verbose
 ```
 
-### Web Execution (Future)
-For rapid deployment across multiple systems:
+### Web Execution
+For rapid deployment across multiple systems without cloning the repository:
+
 ```powershell
-# Build web-compatible version
-.\Build-WebVersion.ps1
+# Build self-contained web version
+.\Build-WebVersion.ps1 -OutputFile "WindowsWorkstationAuditor-Complete.ps1"
 
-# Execute remotely (after uploading to web server)
-iex (irm https://your-url/WindowsWorkstationAuditor-Complete.ps1)
+# Execute directly from GitHub (after pushing the generated file):
+iex (irm https://raw.githubusercontent.com/jeremyroe/BusinessNetworkAuditor/main/WindowsWorkstationAuditor-Complete.ps1)
+
+# Or execute with custom parameters:
+$OutputPath = "C:\RemoteAudits"; iex (irm https://raw.githubusercontent.com/jeremyroe/BusinessNetworkAuditor/main/WindowsWorkstationAuditor-Complete.ps1)
+
+# For testing/development branch:
+iex (irm https://raw.githubusercontent.com/jeremyroe/BusinessNetworkAuditor/develop/WindowsWorkstationAuditor-Complete.ps1)
 ```
+
+**Web Execution Benefits**:
+- Execute directly from GitHub - no separate hosting required
+- Single PowerShell command deployment
+- No local file storage required
+- Embeds all modules and functionality
+- Version control integration
+- Perfect for one-off assessments or emergency response
 
 ## Output Files
 
@@ -248,34 +277,42 @@ Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
 # Check generated markdown and JSON files
 ```
 
-## Version History
+## Recent Enhancements
 
-### v1.3.0 (Current)
-- ✅ Modular architecture implementation
-- ✅ Enhanced antivirus detection (multi-method)
-- ✅ New markdown technician reports
-- ✅ Comprehensive raw JSON exports
-- ✅ PowerShell execution pattern analysis
-- ✅ Complete software inventory with metadata
-- ✅ Improved compliance framework mapping
-- ✅ Web execution compatibility preparation
+### Software Detection & Investigation Points
+- **Remote Access Software**: 27+ tools including TeamViewer, AnyDesk, ScreenConnect/ConnectWise Control
+- **RMM/Monitoring Platforms**: 19+ platforms including ConnectWise Automate, NinjaRMM, Kaseya
+- **Risk Classification**: Automatic MEDIUM risk flagging for investigation by security teams
+- **Detailed Metadata**: Install dates, versions, publishers for compliance tracking
 
-### v1.2.0 (Legacy)
-- Monolithic script architecture
-- Basic CSV/JSON exports
-- Limited antivirus detection
-- Windows Defender focus only
+### Policy Management Analysis
+- **Domain Group Policy**: Traditional AD-based policy detection and enumeration
+- **MDM/Intune Policies**: Azure AD enrolled device policy analysis with actual setting values
+- **Local Security Policy**: Standalone system policy configuration detection
+- **Clean Reporting**: Filtered technical metadata for readable technician reports
 
-## License
+### BitLocker & Encryption
+- **Encryption Status**: Per-volume BitLocker encryption analysis
+- **Key Escrow**: Automatic detection of Azure AD vs Active Directory key backup
+- **Recovery Methods**: PIN, password, TPM, and USB key protector analysis
+- **Compliance Tracking**: Encryption policy adherence and recommendations
 
-This project is licensed under the MIT License - see the LICENSE file for details.
+### Multi-AV Environment Support
+- **Intelligent Detection**: Proper Windows Defender status in multi-AV environments
+- **20+ AV Products**: Enterprise EDR, traditional AV, and consumer products
+- **Risk Assessment**: Contextual risk levels based on actual protection status
+
+### System Context Handling
+- **User vs SYSTEM**: Appropriate checks for execution context (user profile vs system-wide)
+- **Permission Awareness**: Graceful handling of access denied scenarios
+- **Encoding Fixes**: Resolved Unicode character issues in SYSTEM context
 
 ## Support
 
-For issues, feature requests, or questions:
-- Create an issue in the GitHub repository
-- Review the troubleshooting section above
+For issues or questions, refer to:
+- The troubleshooting section above
 - Check the audit logs for detailed error information
+- Review the testing guide in `docs/TESTING.md`
 
 ---
 
