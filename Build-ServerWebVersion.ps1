@@ -1,18 +1,18 @@
-# Build Self-Contained Web Version of WindowsWorkstationAuditor
-# This script combines all modules into a single file for web execution
+# Build Self-Contained Web Version of WindowsServerAuditor
+# This script combines server modules into a single file for web execution
 
 param(
-    [string]$OutputFile = "WindowsWorkstationAuditor-Complete.ps1"
+    [string]$OutputFile = "WindowsServerAuditor-Web.ps1"
 )
 
-Write-Host "Building self-contained web version..." -ForegroundColor Green
+Write-Host "Building server web version..." -ForegroundColor Green
 
 $WebScript = @"
-# WindowsWorkstationAuditor - Self-Contained Web Version
-# Version 1.3.0 - Complete Standalone Script
-# Platform: Windows 10/11, Windows Server 2016+
+# WindowsServerAuditor - Self-Contained Web Version
+# Version 1.3.0 - Server Audit Script
+# Platform: Windows Server 2016+
 # Requires: PowerShell 5.0+
-# Usage: iex (irm https://your-url/WindowsWorkstationAuditor-Complete.ps1)
+# Usage: iex (irm https://your-url/WindowsServerAuditor-Web.ps1)
 
 param(
     [string]`$OutputPath = "`$env:USERPROFILE\WindowsAudit",
@@ -52,15 +52,15 @@ foreach ($File in $CoreFiles) {
     if (Test-Path $File) {
         Write-Host "  Adding $File" -ForegroundColor Gray
         $Content = Get-Content $File -Raw
-        # Keep the full function intact - no stripping needed
         $WebScript += "`n`n# === $File ===`n$Content"
     }
 }
 
-# Add all audit modules
-Write-Host "Adding audit modules..." -ForegroundColor Yellow
+# Add server audit modules (includes all workstation modules plus server-specific ones)
+Write-Host "Adding server audit modules..." -ForegroundColor Yellow
 
 $ModuleFiles = @(
+    # Core system modules
     "src\modules\Get-SystemInformation.ps1",
     "src\modules\Get-UserAccountAnalysis.ps1", 
     "src\modules\Get-SoftwareInventory.ps1",
@@ -72,7 +72,13 @@ $ModuleFiles = @(
     "src\modules\Get-PrinterAnalysis.ps1",
     "src\modules\Get-NetworkAnalysis.ps1",
     "src\modules\Get-ProcessAnalysis.ps1",
-    "src\modules\Get-EventLogAnalysis.ps1"
+    "src\modules\Get-EventLogAnalysis.ps1",
+    # Server-specific modules
+    "src\modules\Get-ServerRoleAnalysis.ps1",
+    "src\modules\Get-ActiveDirectoryAnalysis.ps1",
+    "src\modules\Get-DHCPAnalysis.ps1",
+    "src\modules\Get-DNSAnalysis.ps1",
+    "src\modules\Get-FileShareAnalysis.ps1"
 )
 
 foreach ($File in $ModuleFiles) {
@@ -98,15 +104,19 @@ $MainLogic = @"
 
 # Main execution
 try {
-    Write-LogMessage "INFO" "WindowsWorkstationAuditor Web v1.3.0 starting..." "MAIN"
+    Write-LogMessage "INFO" "WindowsServerAuditor Web v1.3.0 starting..." "MAIN"
     Write-LogMessage "INFO" "Output directory: `$OutputPath" "MAIN"
     
     `$AllResults = @()
     `$AuditModuleNames = @(
+        # Core system modules
         "Get-SystemInformation", "Get-UserAccountAnalysis", "Get-SoftwareInventory",
         "Get-SecuritySettings", "Get-PatchStatus", "Get-PolicyAnalysis",
         "Get-DiskSpaceAnalysis", "Get-MemoryAnalysis", "Get-PrinterAnalysis", 
-        "Get-NetworkAnalysis", "Get-ProcessAnalysis", "Get-EventLogAnalysis"
+        "Get-NetworkAnalysis", "Get-ProcessAnalysis", "Get-EventLogAnalysis",
+        # Server-specific modules
+        "Get-ServerRoleAnalysis", "Get-ActiveDirectoryAnalysis", "Get-DHCPAnalysis",
+        "Get-DNSAnalysis", "Get-FileShareAnalysis"
     )
     
     foreach (`$ModuleName in `$AuditModuleNames) {
@@ -155,7 +165,7 @@ $WebScript += $MainLogic
 # Write the complete file
 $WebScript | Set-Content -Path $OutputFile -Encoding UTF8
 
-Write-Host "Web version created: $OutputFile" -ForegroundColor Green
+Write-Host "Server web version created: $OutputFile" -ForegroundColor Green
 Write-Host "File size: $([math]::Round((Get-Item $OutputFile).Length / 1KB, 1)) KB" -ForegroundColor Yellow
 Write-Host ""
 Write-Host "Usage: iex (irm https://your-url/$OutputFile)" -ForegroundColor Cyan

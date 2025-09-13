@@ -1,8 +1,8 @@
 # WindowsWorkstationAuditor - Self-Contained Web Version
-# Version 1.3.0 - Complete Standalone Script
-# Platform: Windows 10/11, Windows Server 2016+
+# Version 1.3.0 - Workstation Audit Script
+# Platform: Windows 10/11, Windows Server (workstation features)
 # Requires: PowerShell 5.0+
-# Usage: iex (irm https://your-url/WindowsWorkstationAuditor-Complete.ps1)
+# Usage: iex (irm https://your-url/WindowsWorkstationAuditor-Web.ps1)
 
 param(
     [string]$OutputPath = "$env:USERPROFILE\WindowsAudit",
@@ -82,27 +82,57 @@ function Write-LogMessage {
 function Initialize-Logging {
     <#
     .SYNOPSIS
-        Initializes the logging system for the Windows Workstation Auditor
+        Initializes the logging system for the audit tool
         
     .DESCRIPTION
         Creates log directory structure and sets up the main log file path.
-        Depends on global script variables for output path and base filename.
+        Can work with parameters or global script variables.
+        
+    .PARAMETER LogDirectory
+        Directory to create log files in (optional, uses $OutputPath/logs if not specified)
+        
+    .PARAMETER LogFileName
+        Name of the log file (optional, uses ${Script:BaseFileName}_audit.log if not specified)
         
     .NOTES
-        Requires: $OutputPath, $Script:BaseFileName, $ComputerName global variables
+        Requires: $OutputPath, $Script:BaseFileName, $ComputerName global variables (if parameters not provided)
     #>
+    param(
+        [string]$LogDirectory,
+        [string]$LogFileName
+    )
     
-    $LogDirectory = Join-Path $OutputPath "logs"
-    if (-not (Test-Path $LogDirectory)) {
-        New-Item -ItemType Directory -Path $LogDirectory -Force | Out-Null
+    try {
+        # Use parameters if provided, otherwise fall back to global variables
+        if (-not $LogDirectory) {
+            $LogDirectory = Join-Path $OutputPath "logs"
+        }
+        
+        if (-not $LogFileName) {
+            $LogFileName = "${Script:BaseFileName}_audit.log"
+        }
+        
+        if (-not (Test-Path $LogDirectory)) {
+            New-Item -ItemType Directory -Path $LogDirectory -Force | Out-Null
+        }
+        
+        $Script:LogFile = Join-Path $LogDirectory $LogFileName
+        
+        # Determine if this is workstation or server based on the filename
+        $AuditorType = if ($LogFileName -like "*server*") { "WindowsServerAuditor" } else { "WindowsWorkstationAuditor" }
+        
+        Write-LogMessage "INFO" "$AuditorType v1.3.0 Started"
+        Write-LogMessage "INFO" "Computer: $($Script:ComputerName)"
+        Write-LogMessage "INFO" "User: $env:USERNAME"
+        Write-LogMessage "INFO" "Base filename: $Script:BaseFileName"
+        Write-LogMessage "INFO" "Log file: $Script:LogFile"
+        
+        return $true
     }
-    
-    $Script:LogFile = Join-Path $LogDirectory "${Script:BaseFileName}_audit.log"
-    
-    Write-LogMessage "INFO" "Windows Workstation Auditor v1.3.0 Started"
-    Write-LogMessage "INFO" "Computer: $ComputerName"
-    Write-LogMessage "INFO" "User: $env:USERNAME"
-    Write-LogMessage "INFO" "Base filename: $Script:BaseFileName"
+    catch {
+        Write-Host "ERROR: Failed to initialize logging: $($_.Exception.Message)" -ForegroundColor Red
+        return $false
+    }
 }
 
 # === src\core\Export-MarkdownReport.ps1 ===
@@ -145,11 +175,40 @@ function Export-MarkdownReport {
         $ReportContent = @()
         
         # Header
-        $ReportContent += "# Windows Workstation Security Audit Report"
+        #region Report Header Generation
+        # Auto-detect if this is a server audit based on results content or OS type
+        $IsServerAudit = $false
+        
+        # Method 1: Check if server-specific results are present
+        $ServerIndicators = @("Server Roles", "DHCP", "DNS", "Active Directory")
+        $HasServerResults = $Results | Where-Object { $_.Category -in $ServerIndicators }
+        
+        # Method 2: Check OS type via WMI
+        try {
+            $OSInfo = Get-CimInstance -ClassName Win32_OperatingSystem -ErrorAction SilentlyContinue
+            $IsWindowsServer = $OSInfo.ProductType -ne 1  # ProductType: 1=Workstation, 2=DC, 3=Server
+        }
+        catch {
+            $IsWindowsServer = $false
+        }
+        
+        # Determine audit type
+        $IsServerAudit = ($HasServerResults.Count -gt 0) -or $IsWindowsServer
+        
+        # Generate appropriate header
+        if ($IsServerAudit) {
+            $ReportContent += "# Windows Server IT Assessment Report"
+            $ReportTitle = "WindowsServerAuditor v1.3.0"
+        } else {
+            $ReportContent += "# Windows Workstation Security Audit Report" 
+            $ReportTitle = "WindowsWorkstationAuditor v1.3.0"
+        }
+        
         $ReportContent += ""
         $ReportContent += "**Computer:** $env:COMPUTERNAME"
         $ReportContent += "**Generated:** $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')"
-        $ReportContent += "**Tool Version:** WindowsWorkstationAuditor v1.3.0"
+        $ReportContent += "**Tool Version:** $ReportTitle"
+        #endregion
         $ReportContent += ""
         
         # Executive Summary
@@ -179,8 +238,8 @@ function Export-MarkdownReport {
                 foreach ($Item in $HighRisk) {
                     $ReportContent += "- **$($Item.Category) - $($Item.Item):** $($Item.Value)"
                     $ReportContent += "  - Details: $($Item.Details)"
-                    if ($Item.Compliance) {
-                        $ReportContent += "  - Compliance: $($Item.Compliance)"
+                    if ($Item.Recommendation) {
+                        $ReportContent += "  - Recommendation: $($Item.Recommendation)"
                     }
                     $ReportContent += ""
                 }
@@ -192,8 +251,8 @@ function Export-MarkdownReport {
                 foreach ($Item in $MediumRisk) {
                     $ReportContent += "- **$($Item.Category) - $($Item.Item):** $($Item.Value)"
                     $ReportContent += "  - Details: $($Item.Details)"
-                    if ($Item.Compliance) {
-                        $ReportContent += "  - Compliance: $($Item.Compliance)"
+                    if ($Item.Recommendation) {
+                        $ReportContent += "  - Recommendation: $($Item.Recommendation)"
                     }
                     $ReportContent += ""
                 }
@@ -224,8 +283,8 @@ function Export-MarkdownReport {
                     $ReportContent += "**$RiskIcon $($Item.Item):** $($Item.Value)"
                     $ReportContent += ""
                     $ReportContent += "- **Details:** $($Item.Details)"
-                    if ($Item.Compliance) {
-                        $ReportContent += "- **Compliance:** $($Item.Compliance)"
+                    if ($Item.Recommendation) {
+                        $ReportContent += "- **Recommendation:** $($Item.Recommendation)"
                     }
                     $ReportContent += ""
                 }
@@ -243,12 +302,12 @@ function Export-MarkdownReport {
             $ReportContent += ""
         }
         
-        # Compliance Summary
-        $ComplianceItems = $Results | Where-Object { $_.Compliance -and $_.Compliance.Trim() -ne "" }
-        if ($ComplianceItems.Count -gt 0) {
-            $ReportContent += "## Compliance Recommendations"
+        # Recommendation Summary
+        $RecommendationItems = $Results | Where-Object { $_.Recommendation -and $_.Recommendation.Trim() -ne "" }
+        if ($RecommendationItems.Count -gt 0) {
+            $ReportContent += "## Recommendations"
             $ReportContent += ""
-            $ComplianceItems | Group-Object Compliance | ForEach-Object {
+            $RecommendationItems | Group-Object Recommendation | ForEach-Object {
                 $ReportContent += "- **$($_.Name)**"
                 $ReportContent += "  - Affected Items: $($_.Count)"
                 $ReportContent += ""
@@ -331,14 +390,14 @@ function Export-RawDataJSON {
                 medium_risk_count = ($Results | Where-Object { $_.RiskLevel -eq "MEDIUM" }).Count
                 low_risk_count = ($Results | Where-Object { $_.RiskLevel -eq "LOW" }).Count
                 info_count = ($Results | Where-Object { $_.RiskLevel -eq "INFO" }).Count
-                compliance_findings = ($Results | Where-Object { $_.Compliance -and $_.Compliance.Trim() -ne "" }).Count
+                recommendation_findings = ($Results | Where-Object { $_.Recommendation -and $_.Recommendation.Trim() -ne "" }).Count
             }
             
             categories = [ordered]@{}
             
             raw_collections = [ordered]@{}
             
-            compliance_framework = [ordered]@{
+            recommendation_framework = [ordered]@{
                 primary = "NIST"
                 findings = @()
             }
@@ -370,24 +429,24 @@ function Export-RawDataJSON {
                     value = $Item.Value
                     details = $Item.Details
                     risk_level = $Item.RiskLevel
-                    compliance_note = $Item.Compliance
+                    recommendation_note = $Item.Recommendation
                     category = $Item.Category
                     timestamp = (Get-Date).ToString("yyyy-MM-ddTHH:mm:ss.fffZ")
                 }
                 
                 $AuditData.categories[$CategoryName].findings += $Finding
                 
-                # Add to compliance findings if applicable
-                if ($Item.Compliance -and $Item.Compliance.Trim() -ne "") {
-                    $ComplianceFinding = [ordered]@{
+                # Add to recommendation findings if applicable
+                if ($Item.Recommendation -and $Item.Recommendation.Trim() -ne "") {
+                    $RecommendationFinding = [ordered]@{
                         finding_id = $Finding.id
                         framework = "NIST"
-                        requirement = $Item.Compliance
+                        recommendation = $Item.Recommendation
                         category = $CategoryName
                         item = $Item.Item
                         risk_level = $Item.RiskLevel
                     }
-                    $AuditData.compliance_framework.findings += $ComplianceFinding
+                    $AuditData.recommendation_framework.findings += $RecommendationFinding
                 }
             }
         }
@@ -482,7 +541,7 @@ function Get-SystemInformation {
         and WSUS configuration details for security assessment.
         
     .OUTPUTS
-        Array of PSCustomObjects with Category, Item, Value, Details, RiskLevel, Compliance
+        Array of PSCustomObjects with Category, Item, Value, Details, RiskLevel, Recommendation
         
     .NOTES
         Requires: Write-LogMessage function
@@ -589,7 +648,7 @@ function Get-SystemInformation {
             Value = "$($OS.Caption) $($OS.Version)"
             Details = "Build: $($OS.BuildNumber), Install Date: $($OS.InstallDate)"
             RiskLevel = "INFO"
-            Compliance = ""
+            Recommendation = ""
         }
         
         # Hardware Info
@@ -599,7 +658,7 @@ function Get-SystemInformation {
             Value = "$($Computer.Manufacturer) $($Computer.Model)"
             Details = "RAM: $([math]::Round($Computer.TotalPhysicalMemory/1GB, 2))GB, Processors: $($Computer.NumberOfProcessors)"
             RiskLevel = "INFO"
-            Compliance = ""
+            Recommendation = ""
         }
         
         # Domain Status with Tenant Info
@@ -622,7 +681,7 @@ function Get-SystemInformation {
             Value = $DomainName
             Details = $DomainDetails
             RiskLevel = if ($AzureADJoined -or $DomainJoined) { "LOW" } else { "MEDIUM" }
-            Compliance = if (-not $AzureADJoined -and -not $DomainJoined) { "Consider domain or Azure AD joining for centralized management" } else { "" }
+            Recommendation = if (-not $AzureADJoined -and -not $DomainJoined) { "Consider domain or Azure AD joining for centralized management" } else { "" }
         }
         
         # WSUS Configuration Status
@@ -632,7 +691,7 @@ function Get-SystemInformation {
             Value = if ($WSUSConfigured) { "Configured" } else { "Not Configured" }
             Details = if ($WSUSConfigured) { "Server: $WSUSServer" } else { "Using Microsoft Update directly" }
             RiskLevel = "INFO"
-            Compliance = ""
+            Recommendation = ""
         }
         
         # MDM Enrollment Status (only for Azure AD joined systems)
@@ -643,7 +702,7 @@ function Get-SystemInformation {
                 Value = if ($MDMEnrolled) { "Enrolled" } else { "Not Enrolled" }
                 Details = if ($MDMEnrolled) { "Device enrolled in Mobile Device Management" } else { "Device not enrolled in MDM" }
                 RiskLevel = if ($MDMEnrolled) { "LOW" } else { "MEDIUM" }
-                Compliance = if (-not $MDMEnrolled) { "Consider MDM enrollment for device management" } else { "" }
+                Recommendation = if (-not $MDMEnrolled) { "Consider MDM enrollment for device management" } else { "" }
             }
         }
         
@@ -674,7 +733,7 @@ function Get-UserAccountAnalysis {
         - Administrative privilege distribution analysis
         
     .OUTPUTS
-        Array of PSCustomObjects with Category, Item, Value, Details, RiskLevel, Compliance
+        Array of PSCustomObjects with Category, Item, Value, Details, RiskLevel, Recommendation
         
     .NOTES
         Requires: Write-LogMessage function
@@ -780,7 +839,7 @@ function Get-UserAccountAnalysis {
             Value = $AdminCount
             Details = "Users: $($LocalAdmins -join ', ')"
             RiskLevel = if ($AdminCount -gt 3) { "HIGH" } elseif ($AdminCount -gt 1) { "MEDIUM" } else { "LOW" }
-            Compliance = if ($AdminCount -gt 3) { "Limit administrative access" } else { "" }
+            Recommendation = if ($AdminCount -gt 3) { "Limit administrative access" } else { "" }
         }
         
         # Guest Account Status
@@ -792,7 +851,7 @@ function Get-UserAccountAnalysis {
                 Value = if ($GuestAccount.Disabled) { "Disabled" } else { "Enabled" }
                 Details = "Guest account status"
                 RiskLevel = if ($GuestAccount.Disabled) { "LOW" } else { "HIGH" }
-                Compliance = if (-not $GuestAccount.Disabled) { "Disable guest account" } else { "" }
+                Recommendation = if (-not $GuestAccount.Disabled) { "Disable guest account" } else { "" }
             }
         }
         
@@ -822,7 +881,7 @@ function Get-SoftwareInventory {
         - Installation date tracking for security assessment
         
     .OUTPUTS
-        Array of PSCustomObjects with Category, Item, Value, Details, RiskLevel, Compliance
+        Array of PSCustomObjects with Category, Item, Value, Details, RiskLevel, Recommendation
         
     .NOTES
         Requires: Write-LogMessage function
@@ -850,7 +909,7 @@ function Get-SoftwareInventory {
             Value = $AllSoftware.Count
             Details = "Unique installed applications"
             RiskLevel = "INFO"
-            Compliance = ""
+            Recommendation = ""
         }
         
         # Check for critical software and versions
@@ -879,7 +938,7 @@ function Get-SoftwareInventory {
                     Value = $Found.DisplayVersion
                     Details = "Install Date: $(if ($InstallDate) { $InstallDate.ToString('yyyy-MM-dd') } else { 'Unknown' }), Age: $(if ($AgeInDays) { "$AgeInDays days" } else { 'Unknown' })"
                     RiskLevel = $RiskLevel
-                    Compliance = if ($AgeInDays -gt 365) { "Regular software updates required" } else { "" }
+                    Recommendation = if ($AgeInDays -gt 365) { "Regular software updates required" } else { "" }
                 }
             }
         }
@@ -939,7 +998,7 @@ function Get-SoftwareInventory {
                     Value = "$($App.DisplayName) - $($App.DisplayVersion)"
                     Details = "Remote access software detected. Install date: $(if ($InstallDate) { $InstallDate.ToString('yyyy-MM-dd') } else { 'Unknown' }). Review business justification and security controls."
                     RiskLevel = $RemoteApp.Risk
-                    Compliance = "Document and secure remote access tools"
+                    Recommendation = "Document and secure remote access tools"
                 }
             }
         }
@@ -1008,7 +1067,7 @@ function Get-SoftwareInventory {
                     Value = "$($App.DisplayName) - $($App.DisplayVersion)"
                     Details = "RMM/monitoring software detected. Install date: $(if ($InstallDate) { $InstallDate.ToString('yyyy-MM-dd') } else { 'Unknown' }). Review management authorization and security controls."
                     RiskLevel = $RMMApp.Risk
-                    Compliance = "Document and authorize remote monitoring tools"
+                    Recommendation = "Document and authorize remote monitoring tools"
                 }
             }
         }
@@ -1055,7 +1114,7 @@ function Get-SoftwareInventory {
             Value = "Full inventory available in raw data"
             Details = "Browsers: $($Browsers.Count), Dev Tools: $($DevTools.Count), Office: $($Office.Count), Security: $($Security.Count), Total: $($AllSoftware.Count)"
             RiskLevel = "INFO"
-            Compliance = ""
+            Recommendation = ""
         }
         
         Write-LogMessage "SUCCESS" "Software inventory completed - $($AllSoftware.Count) programs found" "SOFTWARE"
@@ -1085,7 +1144,7 @@ function Get-SecuritySettings {
         - Real-time protection and security service status
         
     .OUTPUTS
-        Array of PSCustomObjects with Category, Item, Value, Details, RiskLevel, Compliance
+        Array of PSCustomObjects with Category, Item, Value, Details, RiskLevel, Recommendation
         
     .NOTES
         Requires: Write-LogMessage function
@@ -1244,7 +1303,7 @@ function Get-SecuritySettings {
                                 Value = "$ProcessAV - Process Running"
                                 Details = "AV processes detected but not registered with Security Center. May indicate configuration issue or secondary AV installation."
                                 RiskLevel = "MEDIUM"
-                                Compliance = "Verify antivirus registration and avoid conflicting AV products"
+                                Recommendation = "Verify antivirus registration and avoid conflicting AV products"
                             }
                             
                             Write-LogMessage "WARN" "AV process detected but not in Security Center: $ProcessAV" "SECURITY"
@@ -1281,23 +1340,23 @@ function Get-SecuritySettings {
                 if ($InstanceCount -gt 1) { $Details += ", Multiple instances detected: $InstanceCount" }
                 
                 $RiskLevel = "LOW"
-                $Compliance = ""
+                $Recommendation = ""
                 
                 if (-not $AV.Enabled) {
                     # Check if this is Windows Defender and other AV products are active
                     if ($AV.Name -match "Windows Defender" -and $ActiveAV.Count -gt 0) {
                         $RiskLevel = "LOW" 
-                        $Compliance = "Windows Defender properly disabled - other active AV products detected"
+                        $Recommendation = "Windows Defender properly disabled - other active AV products detected"
                     } else {
                         $RiskLevel = "HIGH"
-                        $Compliance = "Antivirus must be enabled and active"
+                        $Recommendation = "Antivirus must be enabled and active"
                     }
                 } elseif ($AV.UpToDate -eq $false) {
                     $RiskLevel = "MEDIUM"
-                    $Compliance = "Antivirus signatures must be current"
+                    $Recommendation = "Antivirus signatures must be current"
                 } elseif ($InstanceCount -gt 1) {
                     $RiskLevel = "MEDIUM"
-                    $Compliance = "Multiple instances may indicate conflicting installations"
+                    $Recommendation = "Multiple instances may indicate conflicting installations"
                 }
                 
                 $DisplayName = if ($InstanceCount -gt 1) { "$($AV.Name) (x$InstanceCount)" } else { $AV.Name }
@@ -1308,7 +1367,7 @@ function Get-SecuritySettings {
                     Value = "$DisplayName - $StatusText"
                     Details = $Details
                     RiskLevel = $RiskLevel
-                    Compliance = $Compliance
+                    Recommendation = ""
                 }
             }
             
@@ -1326,17 +1385,17 @@ function Get-SecuritySettings {
             }
             
             $SummaryRisk = "LOW"
-            $SummaryCompliance = ""
+            $SummaryRecommendation = ""
             
             if ($UniqueActiveProducts -eq 0) {
                 $SummaryRisk = "HIGH"
-                $SummaryCompliance = "No active antivirus protection"
+                $SummaryRecommendation = "No active antivirus protection"
             } elseif ($UniqueActiveProducts -gt 1) {
                 $SummaryRisk = "MEDIUM"
-                $SummaryCompliance = "Multiple active AV products may cause conflicts - review configuration"
+                $SummaryRecommendation = "Multiple active AV products may cause conflicts - review configuration"
             } elseif ($TotalInstances -gt $UniqueDetectedProducts) {
                 $SummaryRisk = "MEDIUM"
-                $SummaryCompliance = "Multiple instances of same products detected - review for cleanup"
+                $SummaryRecommendation = "Multiple instances of same products detected - review for cleanup"
             }
             
             $Results += [PSCustomObject]@{
@@ -1345,7 +1404,7 @@ function Get-SecuritySettings {
                 Value = "$UniqueActiveProducts active of $UniqueDetectedProducts products"
                 Details = $SummaryDetails
                 RiskLevel = $SummaryRisk
-                Compliance = $SummaryCompliance
+                Recommendation = ""
             }
             
             Write-LogMessage "SUCCESS" "Enhanced AV detection: $UniqueActiveProducts unique active products, $UniqueDetectedProducts total products, $TotalInstances instances" "SECURITY"
@@ -1356,7 +1415,7 @@ function Get-SecuritySettings {
                 Value = "None detected"
                 Details = "No antivirus software detected via Security Center, Defender API, or process analysis"
                 RiskLevel = "HIGH"
-                Compliance = "Antivirus protection required"
+                Recommendation = "Antivirus protection required"
             }
             
             Write-LogMessage "ERROR" "No antivirus protection detected by enhanced detection methods" "SECURITY"
@@ -1374,7 +1433,7 @@ function Get-SecuritySettings {
                 Value = if ($Profile.Enabled) { "Enabled" } else { "Disabled" }
                 Details = "Default action: Inbound=$($Profile.DefaultInboundAction), Outbound=$($Profile.DefaultOutboundAction)"
                 RiskLevel = if ($Profile.Enabled) { "LOW" } else { "HIGH" }
-                Compliance = if (-not $Profile.Enabled) { "Enable firewall protection" } else { "" }
+                Recommendation = if (-not $Profile.Enabled) { "Enable firewall protection" } else { "" }
             }
         }
         
@@ -1386,7 +1445,7 @@ function Get-SecuritySettings {
             Value = if ($UACKey.EnableLUA) { "Enabled" } else { "Disabled" }
             Details = "UAC elevation prompts"
             RiskLevel = if ($UACKey.EnableLUA) { "LOW" } else { "HIGH" }
-            Compliance = if (-not $UACKey.EnableLUA) { "Enable UAC for privilege escalation control" } else { "" }
+            Recommendation = if (-not $UACKey.EnableLUA) { "Enable UAC for privilege escalation control" } else { "" }
         }
         
         # BitLocker Encryption Analysis
@@ -1459,7 +1518,7 @@ function Get-SecuritySettings {
                             default { "HIGH" }
                         }
                         
-                        $VolumeCompliance = switch ($Volume.VolumeStatus) {
+                        $VolumeRecommendation = switch ($Volume.VolumeStatus) {
                             "FullyDecrypted" { "Enable BitLocker encryption for data protection" }
                             "DecryptionInProgress" { "Complete BitLocker decryption or re-enable encryption" }
                             "EncryptionInProgress" { "Allow BitLocker encryption to complete" }
@@ -1468,7 +1527,7 @@ function Get-SecuritySettings {
                         
                         # Add recovery key escrow compliance
                         if ($Volume.VolumeStatus -eq "FullyEncrypted" -and -not $RecoveryKeyEscrowed) {
-                            $VolumeCompliance = "Backup BitLocker recovery key to Azure AD or Active Directory"
+                            $VolumeRecommendation = "Backup BitLocker recovery key to Azure AD or Active Directory"
                             $VolumeRisk = "MEDIUM"
                         }
                         
@@ -1478,7 +1537,7 @@ function Get-SecuritySettings {
                             Value = "$($Volume.MountPoint) - $($Volume.VolumeStatus)"
                             Details = "Encryption: $($Volume.EncryptionPercentage)%, Protection: $($Volume.ProtectionStatus), Method: $($Volume.EncryptionMethod), Key Escrow: $EscrowLocation"
                             RiskLevel = $VolumeRisk
-                            Compliance = $VolumeCompliance
+                            Recommendation = ""
                         }
                         
                         Write-LogMessage "INFO" "BitLocker volume $($Volume.MountPoint): $($Volume.VolumeStatus), Escrow: $EscrowLocation" "SECURITY"
@@ -1493,7 +1552,7 @@ function Get-SecuritySettings {
                         Value = "$EncryptedCount of $TotalVolumes volumes encrypted"
                         Details = "BitLocker disk encryption status across all volumes"
                         RiskLevel = if ($EncryptedCount -eq $TotalVolumes) { "LOW" } elseif ($EncryptedCount -gt 0) { "MEDIUM" } else { "HIGH" }
-                        Compliance = if ($EncryptedCount -lt $TotalVolumes) { "Encrypt all system and data volumes with BitLocker" } else { "" }
+                        Recommendation = if ($EncryptedCount -lt $TotalVolumes) { "Encrypt all system and data volumes with BitLocker" } else { "" }
                     }
                     
                 } else {
@@ -1503,7 +1562,7 @@ function Get-SecuritySettings {
                         Value = "No volumes detected"
                         Details = "Unable to retrieve BitLocker volume information"
                         RiskLevel = "MEDIUM"
-                        Compliance = "Verify BitLocker configuration and permissions"
+                        Recommendation = "Verify BitLocker configuration and permissions"
                     }
                 }
             } else {
@@ -1513,7 +1572,7 @@ function Get-SecuritySettings {
                     Value = "Not Available"
                     Details = "BitLocker feature not enabled or not supported"
                     RiskLevel = "HIGH"
-                    Compliance = "Enable BitLocker feature for disk encryption"
+                    Recommendation = "Enable BitLocker feature for disk encryption"
                 }
             }
         }
@@ -1525,7 +1584,7 @@ function Get-SecuritySettings {
                 Value = "Analysis Failed"
                 Details = "Unable to analyze BitLocker status - may require elevated privileges"
                 RiskLevel = "MEDIUM"
-                Compliance = "Manual verification required"
+                Recommendation = "Manual verification required"
             }
         }
         
@@ -1558,7 +1617,7 @@ function Get-PatchStatus {
         - Recent hotfix installation history
         
     .OUTPUTS
-        Array of PSCustomObjects with Category, Item, Value, Details, RiskLevel, Compliance
+        Array of PSCustomObjects with Category, Item, Value, Details, RiskLevel, Recommendation
         
     .NOTES
         Requires: Write-LogMessage function, PSWindowsUpdate module (auto-installed)
@@ -1648,7 +1707,7 @@ function Get-PatchStatus {
                     Value = "$TotalPending total"
                     Details = $StatusDetails
                     RiskLevel = if ($CriticalInProgress.Count -gt 0) { "HIGH" } elseif ($InProgressUpdates.Count -gt 0) { "HIGH" } elseif ($AvailableUpdates.Count -gt 0) { "MEDIUM" } else { "LOW" }
-                    Compliance = if ($CriticalInProgress.Count -gt 0) { "CRITICAL: Restart required for critical updates" } elseif ($InProgressUpdates.Count -gt 0) { "Restart required to complete updates" } else { "" }
+                    Recommendation = if ($CriticalInProgress.Count -gt 0) { "CRITICAL: Restart required for critical updates" } elseif ($InProgressUpdates.Count -gt 0) { "Restart required to complete updates" } else { "" }
                 }
                 
                 # Critical updates requiring reboot
@@ -1660,7 +1719,7 @@ function Get-PatchStatus {
                         Value = $CriticalInProgress.Count
                         Details = $CriticalTitles
                         RiskLevel = "HIGH"
-                        Compliance = "IMMEDIATE: Restart to complete critical security updates"
+                        Recommendation = "IMMEDIATE: Restart to complete critical security updates"
                     }
                 }
                 
@@ -1672,7 +1731,7 @@ function Get-PatchStatus {
                         Value = "Yes"
                         Details = "System restart needed to complete $($InProgressUpdates.Count) updates"
                         RiskLevel = "HIGH"
-                        Compliance = "Restart system to complete update installation"
+                        Recommendation = "Restart system to complete update installation"
                     }
                 }
                 
@@ -1684,7 +1743,7 @@ function Get-PatchStatus {
                         Value = "$($AvailableUpdates.Count) updates"
                         Details = "Updates available for download and installation"
                         RiskLevel = "MEDIUM"
-                        Compliance = "Install available updates within 30 days"
+                        Recommendation = "Install available updates within 30 days"
                     }
                 }
                 
@@ -1702,7 +1761,7 @@ function Get-PatchStatus {
                 Value = "Module Failed"
                 Details = "PSWindowsUpdate module could not be loaded - manual verification required"
                 RiskLevel = "MEDIUM"
-                Compliance = "Manually verify patch status"
+                Recommendation = "Manually verify patch status"
             }
         }
         
@@ -1719,7 +1778,7 @@ function Get-PatchStatus {
                 Value = $RecentHotfixes.Count
                 Details = "Hotfixes installed in last 90 days"
                 RiskLevel = if ($RecentHotfixes.Count -eq 0) { "HIGH" } elseif ($RecentHotfixes.Count -lt 5) { "MEDIUM" } else { "LOW" }
-                Compliance = if ($RecentHotfixes.Count -eq 0) { "No recent patches detected - verify update process" } else { "" }
+                Recommendation = if ($RecentHotfixes.Count -eq 0) { "No recent patches detected - verify update process" } else { "" }
             }
         }
         catch {
@@ -1730,7 +1789,7 @@ function Get-PatchStatus {
                 Value = "Unknown"
                 Details = "Could not retrieve hotfix history"
                 RiskLevel = "MEDIUM"
-                Compliance = "Verify patch installation history"
+                Recommendation = "Verify patch installation history"
             }
         }
         
@@ -1746,7 +1805,7 @@ function Get-PatchStatus {
                 Value = "$UptimeDays days"
                 Details = "Last boot: $($LastBootTime.ToString('yyyy-MM-dd HH:mm:ss'))"
                 RiskLevel = if ($UptimeDays -gt 30) { "MEDIUM" } elseif ($UptimeDays -gt 60) { "HIGH" } else { "LOW" }
-                Compliance = if ($UptimeDays -gt 30) { "Consider regular restarts for patch application" } else { "" }
+                Recommendation = if ($UptimeDays -gt 30) { "Consider regular restarts for patch application" } else { "" }
             }
         }
         catch {
@@ -1762,7 +1821,7 @@ function Get-PatchStatus {
                 Value = $UpdateService.Status
                 Details = "Service startup type: $($UpdateService.StartType)"
                 RiskLevel = if ($UpdateService.Status -eq "Running") { "LOW" } elseif ($UpdateService.Status -eq "Stopped" -and $UpdateService.StartType -eq "Manual") { "LOW" } else { "HIGH" }
-                Compliance = if ($UpdateService.Status -ne "Running" -and $UpdateService.StartType -eq "Disabled") { "Windows Update service should not be permanently disabled" } else { "" }
+                Recommendation = if ($UpdateService.Status -ne "Running" -and $UpdateService.StartType -eq "Disabled") { "Windows Update service should not be permanently disabled" } else { "" }
             }
         }
         catch {
@@ -1773,44 +1832,129 @@ function Get-PatchStatus {
                 Value = "Unknown"
                 Details = "Could not retrieve service status"
                 RiskLevel = "MEDIUM"
-                Compliance = "Verify Windows Update service configuration"
+                Recommendation = "Verify Windows Update service configuration"
             }
         }
         
-        # Automatic Updates configuration
+        # Comprehensive Windows Update configuration detection (effective settings)
         try {
-            $AutoUpdateConfig = Get-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update" -ErrorAction SilentlyContinue
-            if ($AutoUpdateConfig) {
-                $AUOptions = switch ($AutoUpdateConfig.AUOptions) {
-                    1 { "Keep my computer up to date is disabled" }
-                    2 { "Notify before downloading" }
-                    3 { "Notify before installing" }
-                    4 { "Install automatically" }
-                    5 { "Allow users to choose setting" }
-                    default { "Unknown configuration" }
+            Write-LogMessage "INFO" "Detecting effective Windows Update configuration..." "PATCHES"
+            
+            # Check for WSUS configuration (Group Policy takes precedence)
+            $WSUSServerGP = Get-ItemProperty -Path "HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate" -Name "WUServer" -ErrorAction SilentlyContinue
+            $UseWSUSGP = Get-ItemProperty -Path "HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU" -Name "UseWUServer" -ErrorAction SilentlyContinue
+            $NoInternetGP = Get-ItemProperty -Path "HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate" -Name "DoNotConnectToWindowsUpdateInternetLocations" -ErrorAction SilentlyContinue
+            $AUOptionsGP = Get-ItemProperty -Path "HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU" -Name "AUOptions" -ErrorAction SilentlyContinue
+            $NoAutoUpdateGP = Get-ItemProperty -Path "HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU" -Name "NoAutoUpdate" -ErrorAction SilentlyContinue
+            
+            # Check for SCCM/ConfigMgr client
+            $SCCMClient = Get-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\SMS\Mobile Client" -ErrorAction SilentlyContinue
+            $SCCMVersion = if ($SCCMClient -and $SCCMClient.SmsClientVersion) { $SCCMClient.SmsClientVersion } else { $null }
+            
+            # Check for Windows Update for Business (WUfB/Intune)
+            $WUfBPolicy = Get-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\PolicyManager\Current\Device\Update" -ErrorAction SilentlyContinue
+            
+            # Determine effective configuration (in order of precedence)
+            $UpdateConfig = ""
+            $UpdateDetails = ""
+            $RiskLevel = "INFO"
+            $Recommendation = ""
+            
+            # 1. SCCM/ConfigMgr (highest precedence for enterprise)
+            if ($SCCMClient) {
+                $UpdateConfig = "SCCM/ConfigMgr Managed"
+                $UpdateDetails = "ConfigMgr client detected"
+                if ($SCCMVersion) { $UpdateDetails += " (version: $SCCMVersion)" }
+                $RiskLevel = "LOW"
+                Write-LogMessage "SUCCESS" "SCCM ConfigMgr client detected: $SCCMVersion" "PATCHES"
+            }
+            
+            # 2. WSUS Configuration (Group Policy managed)
+            elseif ($WSUSServerGP -and $WSUSServerGP.WUServer -and $UseWSUSGP -and $UseWSUSGP.UseWUServer -eq 1) {
+                $UpdateConfig = "WSUS Server"
+                $UpdateDetails = "WSUS Server: $($WSUSServerGP.WUServer)"
+                if ($NoInternetGP -and $NoInternetGP.DoNotConnectToWindowsUpdateInternetLocations -eq 1) {
+                    $UpdateDetails += " (Internet blocked)"
                 }
-                
-                $Results += [PSCustomObject]@{
-                    Category = "Patches"
-                    Item = "Automatic Updates"
-                    Value = $AUOptions
-                    Details = "Registry AUOptions: $($AutoUpdateConfig.AUOptions)"
-                    RiskLevel = if ($AutoUpdateConfig.AUOptions -in @(3,4)) { "LOW" } elseif ($AutoUpdateConfig.AUOptions -eq 2) { "MEDIUM" } else { "HIGH" }
-                    Compliance = if ($AutoUpdateConfig.AUOptions -eq 1) { "Automatic updates should be enabled" } else { "" }
+                $RiskLevel = "LOW"
+                Write-LogMessage "SUCCESS" "WSUS configuration detected: $($WSUSServerGP.WUServer)" "PATCHES"
+            }
+            
+            # 3. Windows Update for Business (WUfB/Intune)
+            elseif ($WUfBPolicy) {
+                $UpdateConfig = "Windows Update for Business"
+                $UpdateDetails = "Managed by Intune/WUfB policies"
+                $RiskLevel = "LOW"
+                Write-LogMessage "SUCCESS" "Windows Update for Business detected" "PATCHES"
+            }
+            
+            # 4. Group Policy Automatic Updates (without WSUS)
+            elseif ($AUOptionsGP -or $NoAutoUpdateGP) {
+                if ($NoAutoUpdateGP -and $NoAutoUpdateGP.NoAutoUpdate -eq 1) {
+                    $UpdateConfig = "Automatic Updates Disabled"
+                    $UpdateDetails = "Disabled by Group Policy (NoAutoUpdate=1)"
+                    $RiskLevel = "HIGH"
+                    $Recommendation = "Automatic updates should be enabled or managed by WSUS/SCCM"
+                } elseif ($AUOptionsGP -and $AUOptionsGP.AUOptions) {
+                    $AUValue = $AUOptionsGP.AUOptions
+                    $UpdateConfig = switch ($AUValue) {
+                        2 { "Notify before downloading" }
+                        3 { "Download but notify before installing" }
+                        4 { "Install automatically" }
+                        5 { "Allow users to choose setting" }
+                        default { "Custom configuration (AUOptions: $AUValue)" }
+                    }
+                    $UpdateDetails = "Group Policy managed (AUOptions: $AUValue)"
+                    $RiskLevel = if ($AUValue -in @(3,4)) { "LOW" } elseif ($AUValue -eq 2) { "MEDIUM" } else { "HIGH" }
                 }
-            } else {
-                $Results += [PSCustomObject]@{
-                    Category = "Patches"
-                    Item = "Automatic Updates"
-                    Value = "Default/Managed"
-                    Details = "Using default Windows Update settings or managed by policy"
-                    RiskLevel = "LOW"
-                    Compliance = ""
+                Write-LogMessage "SUCCESS" "Group Policy automatic updates: AUOptions=$($AUOptionsGP.AUOptions)" "PATCHES"
+            }
+            
+            # 5. Local Registry Configuration
+            else {
+                $LocalAUConfig = Get-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update" -ErrorAction SilentlyContinue
+                if ($LocalAUConfig -and $LocalAUConfig.AUOptions) {
+                    $AUValue = $LocalAUConfig.AUOptions
+                    $UpdateConfig = switch ($AUValue) {
+                        1 { "Automatic updates disabled" }
+                        2 { "Notify before downloading" }
+                        3 { "Download but notify before installing" }
+                        4 { "Install automatically" }
+                        5 { "Allow users to choose setting" }
+                        default { "Custom configuration (AUOptions: $AUValue)" }
+                    }
+                    $UpdateDetails = "Local registry setting (AUOptions: $AUValue)"
+                    $RiskLevel = if ($AUValue -in @(3,4)) { "LOW" } elseif ($AUValue -eq 2) { "MEDIUM" } else { "HIGH" }
+                    Write-LogMessage "SUCCESS" "Local automatic updates: AUOptions=$AUValue" "PATCHES"
+                } else {
+                    # No explicit configuration found - Windows default behavior
+                    $UpdateConfig = "Windows Default Behavior"
+                    $UpdateDetails = "No explicit update configuration detected - using Windows default automatic update behavior"
+                    $RiskLevel = "MEDIUM"
+                    $Recommendation = "Consider implementing managed Windows Update strategy (WSUS, SCCM, or WUfB)"
+                    Write-LogMessage "WARN" "No Windows Update configuration detected" "PATCHES"
                 }
+            }
+            
+            $Results += [PSCustomObject]@{
+                Category = "Patches"
+                Item = "Windows Update Configuration"
+                Value = $UpdateConfig
+                Details = $UpdateDetails
+                RiskLevel = $RiskLevel
+                Recommendation = ""
             }
         }
         catch {
-            Write-LogMessage "WARN" "Could not check automatic update configuration: $($_.Exception.Message)" "PATCHES"
+            Write-LogMessage "ERROR" "Failed to detect Windows Update configuration: $($_.Exception.Message)" "PATCHES"
+            $Results += [PSCustomObject]@{
+                Category = "Patches"
+                Item = "Windows Update Configuration"
+                Value = "Detection Failed"
+                Details = "Error detecting update configuration: $($_.Exception.Message)"
+                RiskLevel = "ERROR"
+                Recommendation = "Investigate Windows Update configuration detection issue"
+            }
         }
         
         Write-LogMessage "SUCCESS" "Patch status analysis completed" "PATCHES"
@@ -1843,7 +1987,7 @@ function Get-PolicyAnalysis {
         - Windows Defender policy restrictions
         
     .OUTPUTS
-        Array of PSCustomObjects with Category, Item, Value, Details, RiskLevel, Compliance
+        Array of PSCustomObjects with Category, Item, Value, Details, RiskLevel, Recommendation
         
     .NOTES
         Requires: Write-LogMessage function
@@ -1900,7 +2044,7 @@ function Get-PolicyAnalysis {
                         Value = "$($AppliedGPOs.Count) GPOs Applied"
                         Details = "Traditional Active Directory Group Policy Objects"
                         RiskLevel = "LOW"
-                        Compliance = ""
+                        Recommendation = ""
                     }
                     
                     foreach ($GPO in $AppliedGPOs) {
@@ -1911,7 +2055,7 @@ function Get-PolicyAnalysis {
                                 Value = $GPO
                                 Details = "Active Directory Group Policy Object"
                                 RiskLevel = "INFO"
-                                Compliance = ""
+                                Recommendation = ""
                             }
                         }
                     }
@@ -1923,7 +2067,7 @@ function Get-PolicyAnalysis {
                         Value = "Not Applied"
                         Details = "No traditional AD Group Policy Objects (normal for Azure AD joined devices)"
                         RiskLevel = "INFO"
-                        Compliance = ""
+                        Recommendation = ""
                     }
                 }
             }
@@ -2055,7 +2199,7 @@ function Get-PolicyAnalysis {
                     "Not enrolled in MDM management" 
                 }
                 RiskLevel = if ($MDMEnrolled) { "LOW" } else { "MEDIUM" }
-                Compliance = if (-not $MDMEnrolled) { "Consider MDM enrollment for centralized management" } else { "" }
+                Recommendation = if (-not $MDMEnrolled) { "Consider MDM enrollment for centralized management" } else { "" }
             }
             
             # Individual policy categories with detailed settings if detected
@@ -2078,7 +2222,7 @@ function Get-PolicyAnalysis {
                         Value = "$($CSPInfo.Count) settings configured"
                         Details = "$($CSPInfo.Description): $SettingsPreview"
                         RiskLevel = "INFO"
-                        Compliance = ""
+                        Recommendation = ""
                     }
                 }
             }
@@ -2129,7 +2273,7 @@ function Get-PolicyAnalysis {
                     Value = if ($MinPasswordLength) { "$MinPasswordLength characters" } else { "Not configured" }
                     Details = "Minimum password length policy"
                     RiskLevel = if ([int]$MinPasswordLength -ge 12) { "LOW" } elseif ([int]$MinPasswordLength -ge 8) { "MEDIUM" } else { "HIGH" }
-                    Compliance = if ([int]$MinPasswordLength -lt 8) { "Minimum 8 characters required" } elseif ([int]$MinPasswordLength -lt 12) { "Consider 12+ characters for enhanced security" } else { "" }
+                    Recommendation = if ([int]$MinPasswordLength -lt 8) { "Minimum 8 characters required" } elseif ([int]$MinPasswordLength -lt 12) { "Consider 12+ characters for enhanced security" } else { "" }
                 }
                 
                 $Results += [PSCustomObject]@{
@@ -2138,7 +2282,7 @@ function Get-PolicyAnalysis {
                     Value = if ($PasswordComplexity -eq "1") { "Enabled" } else { "Disabled" }
                     Details = "Requires uppercase, lowercase, numbers, and symbols"
                     RiskLevel = if ($PasswordComplexity -eq "1") { "LOW" } else { "HIGH" }
-                    Compliance = if ($PasswordComplexity -ne "1") { "Enable password complexity requirements" } else { "" }
+                    Recommendation = if ($PasswordComplexity -ne "1") { "Enable password complexity requirements" } else { "" }
                 }
                 
                 $Results += [PSCustomObject]@{
@@ -2147,7 +2291,7 @@ function Get-PolicyAnalysis {
                     Value = if ($PasswordHistorySize) { "$PasswordHistorySize passwords remembered" } else { "Not configured" }
                     Details = "Prevents password reuse"
                     RiskLevel = if ([int]$PasswordHistorySize -ge 12) { "LOW" } elseif ([int]$PasswordHistorySize -ge 5) { "MEDIUM" } else { "HIGH" }
-                    Compliance = if ([int]$PasswordHistorySize -lt 12) { "Remember last 12 passwords minimum" } else { "" }
+                    Recommendation = if ([int]$PasswordHistorySize -lt 12) { "Remember last 12 passwords minimum" } else { "" }
                 }
                 
                 # Account Lockout Policy Results
@@ -2157,7 +2301,7 @@ function Get-PolicyAnalysis {
                     Value = if ($LockoutThreshold -and $LockoutThreshold -ne "0") { "$LockoutThreshold invalid attempts" } else { "No lockout policy" }
                     Details = "Failed logon attempts before lockout"
                     RiskLevel = if ($LockoutThreshold -and [int]$LockoutThreshold -le 10 -and [int]$LockoutThreshold -gt 0) { "LOW" } elseif ($LockoutThreshold -eq "0") { "HIGH" } else { "MEDIUM" }
-                    Compliance = if ($LockoutThreshold -eq "0") { "Configure account lockout policy" } else { "" }
+                    Recommendation = if ($LockoutThreshold -eq "0") { "Configure account lockout policy" } else { "" }
                 }
                 
                 if ($LockoutThreshold -and $LockoutThreshold -ne "0") {
@@ -2168,7 +2312,7 @@ function Get-PolicyAnalysis {
                         Value = if ($LockoutDuration -eq "-1") { "Until admin unlocks" } else { "$LockoutDurationMinutes minutes" }
                         Details = "How long accounts remain locked"
                         RiskLevel = if ($LockoutDuration -eq "-1" -or $LockoutDurationMinutes -ge 15) { "LOW" } else { "MEDIUM" }
-                        Compliance = ""
+                        Recommendation = ""
                     }
                 }
                 
@@ -2209,13 +2353,13 @@ function Get-PolicyAnalysis {
                     Value = "Enabled - $TimeoutMinutes minutes"
                     Details = "Secure: $IsSecure, Timeout: $TimeoutMinutes minutes"
                     RiskLevel = if ($IsSecure -and $TimeoutMinutes -le 15 -and $TimeoutMinutes -gt 0) { "LOW" } elseif ($IsSecure -and $TimeoutMinutes -le 30) { "MEDIUM" } else { "HIGH" }
-                    Compliance = if (-not $IsSecure) { "Enable secure screen saver" } elseif ($TimeoutMinutes -gt 15) { "Screen lock timeout should be 15 minutes or less" } else { "" }
+                    Recommendation = if (-not $IsSecure) { "Enable secure screen saver" } elseif ($TimeoutMinutes -gt 15) { "Screen lock timeout should be 15 minutes or less" } else { "" }
                 }
             } else {
                 # Handle case where no user context exists (SYSTEM) or screen saver is disabled
                 $PolicyStatus = if ($env:USERNAME -eq "SYSTEM") { "Cannot Check (System Context)" } else { "Disabled" }
                 $PolicyRisk = if ($env:USERNAME -eq "SYSTEM") { "MEDIUM" } else { "HIGH" }
-                $PolicyCompliance = if ($env:USERNAME -eq "SYSTEM") { "Screen lock policy should be enforced via Group Policy" } else { "Configure automatic screen lock" }
+                $PolicyRecommendation = if ($env:USERNAME -eq "SYSTEM") { "Screen lock policy should be enforced via Group Policy" } else { "Configure automatic screen lock" }
                 
                 $Results += [PSCustomObject]@{
                     Category = "Policy"
@@ -2223,7 +2367,7 @@ function Get-PolicyAnalysis {
                     Value = $PolicyStatus
                     Details = if ($env:USERNAME -eq "SYSTEM") { "Running as SYSTEM - user-specific settings not accessible" } else { "No automatic screen lock configured" }
                     RiskLevel = $PolicyRisk
-                    Compliance = $PolicyCompliance
+                    Recommendation = ""
                 }
             }
         }
@@ -2267,7 +2411,7 @@ function Get-PolicyAnalysis {
                     Value = "$EnabledAudits of $TotalAudits critical audits enabled"
                     Details = $AuditResults -join "; "
                     RiskLevel = if ($EnabledAudits -eq $TotalAudits) { "LOW" } elseif ($EnabledAudits -ge 3) { "MEDIUM" } else { "HIGH" }
-                    Compliance = if ($EnabledAudits -lt $TotalAudits) { "Enable comprehensive audit logging" } else { "" }
+                    Recommendation = if ($EnabledAudits -lt $TotalAudits) { "Enable comprehensive audit logging" } else { "" }
                 }
             }
         }
@@ -2325,7 +2469,7 @@ function Get-PolicyAnalysis {
                     Value = "Active"
                     Details = "Local computer security settings managed independently"
                     RiskLevel = "INFO"
-                    Compliance = ""
+                    Recommendation = ""
                 }
                 
                 if ($DangerousRights.Count -gt 0) {
@@ -2335,7 +2479,7 @@ function Get-PolicyAnalysis {
                         Value = "Issues Found"
                         Details = $DangerousRights -join "; "
                         RiskLevel = "MEDIUM"
-                        Compliance = "Review user rights assignments for least privilege"
+                        Recommendation = "Review user rights assignments for least privilege"
                     }
                 } else {
                     $Results += [PSCustomObject]@{
@@ -2344,7 +2488,7 @@ function Get-PolicyAnalysis {
                         Value = "Secure Configuration"
                         Details = "Critical rights: $($CheckedRights -join ', ')"
                         RiskLevel = "LOW"
-                        Compliance = ""
+                        Recommendation = ""
                     }
                 }
                 
@@ -2368,7 +2512,7 @@ function Get-PolicyAnalysis {
                     Value = "Disabled by Policy"
                     Details = "Windows Defender disabled through Group Policy"
                     RiskLevel = "HIGH"
-                    Compliance = "Ensure antivirus protection is enabled unless replaced by third-party solution"
+                    Recommendation = "Ensure antivirus protection is enabled unless replaced by third-party solution"
                 }
             } elseif ($DefenderRealTime -and $DefenderRealTime.DisableRealtimeMonitoring -eq 1) {
                 $Results += [PSCustomObject]@{
@@ -2377,7 +2521,7 @@ function Get-PolicyAnalysis {
                     Value = "Real-time Protection Disabled"
                     Details = "Real-time protection disabled by policy"
                     RiskLevel = "HIGH"
-                    Compliance = "Enable real-time antivirus protection"
+                    Recommendation = "Enable real-time antivirus protection"
                 }
             } else {
                 $Results += [PSCustomObject]@{
@@ -2386,7 +2530,7 @@ function Get-PolicyAnalysis {
                     Value = "Not Restricted"
                     Details = "No policy restrictions on Windows Defender"
                     RiskLevel = "LOW"
-                    Compliance = ""
+                    Recommendation = ""
                 }
             }
         }
@@ -2417,7 +2561,7 @@ function Get-DiskSpaceAnalysis {
         free space percentages, disk health status, and storage risk assessment.
         
     .OUTPUTS
-        Array of PSCustomObjects with Category, Item, Value, Details, RiskLevel, Compliance
+        Array of PSCustomObjects with Category, Item, Value, Details, RiskLevel, Recommendation
         
     .NOTES
         Requires: Write-LogMessage function
@@ -2442,7 +2586,7 @@ function Get-DiskSpaceAnalysis {
                         elseif ($FreeSpacePercent -lt 20) { "MEDIUM" } 
                         else { "LOW" }
             
-            $Compliance = if ($FreeSpacePercent -lt 15) { 
+            $Recommendation = if ($FreeSpacePercent -lt 15) { 
                 "Maintain adequate free disk space for system operations" 
             } else { "" }
             
@@ -2452,7 +2596,7 @@ function Get-DiskSpaceAnalysis {
                 Value = "$FreeSpacePercent% free"
                 Details = "Total: $TotalSizeGB GB, Used: $UsedSpaceGB GB, Free: $FreeSpaceGB GB"
                 RiskLevel = $RiskLevel
-                Compliance = $Compliance
+                Recommendation = ""
             }
             
             Write-LogMessage "INFO" "Drive $DriveLetter - $FreeSpacePercent% free ($FreeSpaceGB GB / $TotalSizeGB GB)" "DISK"
@@ -2467,7 +2611,7 @@ function Get-DiskSpaceAnalysis {
                 $DiskStatus = $Disk.Status
                 
                 $HealthRisk = if ($DiskStatus -ne "OK") { "HIGH" } else { "LOW" }
-                $HealthCompliance = if ($DiskStatus -ne "OK") { 
+                $HealthRecommendation = if ($DiskStatus -ne "OK") { 
                     "Monitor disk health and replace failing drives" 
                 } else { "" }
                 
@@ -2477,7 +2621,7 @@ function Get-DiskSpaceAnalysis {
                     Value = $DiskStatus
                     Details = "$DiskModel ($DiskSize GB)"
                     RiskLevel = $HealthRisk
-                    Compliance = $HealthCompliance
+                    Recommendation = ""
                 }
                 
                 Write-LogMessage "INFO" "Physical disk: $DiskModel - Status: $DiskStatus" "DISK"
@@ -2511,7 +2655,7 @@ function Get-MemoryAnalysis {
         configuration, page file settings, and memory performance analysis.
         
     .OUTPUTS
-        Array of PSCustomObjects with Category, Item, Value, Details, RiskLevel, Compliance
+        Array of PSCustomObjects with Category, Item, Value, Details, RiskLevel, Recommendation
         
     .NOTES
         Requires: Write-LogMessage function
@@ -2537,7 +2681,7 @@ function Get-MemoryAnalysis {
                           elseif ($MemoryUsagePercent -gt 75) { "MEDIUM" }
                           else { "LOW" }
         
-        $MemoryCompliance = if ($MemoryUsagePercent -gt 80) {
+        $MemoryRecommendation = if ($MemoryUsagePercent -gt 80) {
             "High memory usage may impact system performance"
         } else { "" }
         
@@ -2547,7 +2691,7 @@ function Get-MemoryAnalysis {
             Value = "$MemoryUsagePercent% used"
             Details = "Total: $TotalMemoryGB GB, Used: $UsedMemoryGB GB, Free: $FreeMemoryGB GB"
             RiskLevel = $MemoryRiskLevel
-            Compliance = $MemoryCompliance
+            Recommendation = ""
         }
         
         Write-LogMessage "INFO" "Physical Memory: $MemoryUsagePercent% used ($UsedMemoryGB GB / $TotalMemoryGB GB)" "MEMORY"
@@ -2573,7 +2717,7 @@ function Get-MemoryAnalysis {
                         Value = "$PageFileUsagePercent% used"
                         Details = "Page File: $($PageFile.Name), Size: $PageFileSizeGB GB, Used: $PageFileUsedGB GB"
                         RiskLevel = $PageFileRisk
-                        Compliance = if ($PageFileUsagePercent -gt 70) { "Monitor virtual memory usage" } else { "" }
+                        Recommendation = if ($PageFileUsagePercent -gt 70) { "Monitor virtual memory usage" } else { "" }
                     }
                     
                     Write-LogMessage "INFO" "Page File $($PageFile.Name): $PageFileUsagePercent% used ($PageFileUsedGB GB / $PageFileSizeGB GB)" "MEMORY"
@@ -2585,7 +2729,7 @@ function Get-MemoryAnalysis {
                     Value = "No page file configured"
                     Details = "System has no virtual memory page file"
                     RiskLevel = "MEDIUM"
-                    Compliance = "Consider configuring virtual memory for system stability"
+                    Recommendation = "Consider configuring virtual memory for system stability"
                 }
                 Write-LogMessage "WARN" "No page file configured on system" "MEMORY"
             }
@@ -2608,7 +2752,7 @@ function Get-MemoryAnalysis {
                 Value = "$AvailableMB MB available"
                 Details = "System has $AvailableMB MB available for allocation"
                 RiskLevel = if ($AvailableMB -lt 512) { "HIGH" } elseif ($AvailableMB -lt 1024) { "MEDIUM" } else { "LOW" }
-                Compliance = if ($AvailableMB -lt 1024) { "Low available memory may impact performance" } else { "" }
+                Recommendation = if ($AvailableMB -lt 1024) { "Low available memory may impact performance" } else { "" }
             }
             
             $Results += [PSCustomObject]@{
@@ -2617,7 +2761,7 @@ function Get-MemoryAnalysis {
                 Value = "$CommittedMB MB committed"
                 Details = "System has committed $CommittedMB MB of virtual memory"
                 RiskLevel = "INFO"
-                Compliance = ""
+                Recommendation = ""
             }
             
             Write-LogMessage "INFO" "Memory Performance: Available: $AvailableMB MB, Committed: $CommittedMB MB" "MEMORY"
@@ -2649,7 +2793,7 @@ function Get-PrinterAnalysis {
         driver versions and status, print spooler service health, and default printer settings.
         
     .OUTPUTS
-        Array of PSCustomObjects with Category, Item, Value, Details, RiskLevel, Compliance
+        Array of PSCustomObjects with Category, Item, Value, Details, RiskLevel, Recommendation
         
     .NOTES
         Requires: Write-LogMessage function
@@ -2666,7 +2810,7 @@ function Get-PrinterAnalysis {
             $SpoolerService = Get-Service -Name "Spooler" -ErrorAction SilentlyContinue
             if ($SpoolerService) {
                 $SpoolerRisk = if ($SpoolerService.Status -ne "Running") { "HIGH" } else { "LOW" }
-                $SpoolerCompliance = if ($SpoolerService.Status -ne "Running") {
+                $SpoolerRecommendation = if ($SpoolerService.Status -ne "Running") {
                     "Print Spooler service should be running for proper printer functionality"
                 } else { "" }
                 
@@ -2676,7 +2820,7 @@ function Get-PrinterAnalysis {
                     Value = $SpoolerService.Status
                     Details = "Service startup type: $($SpoolerService.StartType)"
                     RiskLevel = $SpoolerRisk
-                    Compliance = $SpoolerCompliance
+                    Recommendation = ""
                 }
                 
                 Write-LogMessage "INFO" "Print Spooler Service: $($SpoolerService.Status)" "PRINTER"
@@ -2698,7 +2842,7 @@ function Get-PrinterAnalysis {
                     Value = "No printers found"
                     Details = "System has no configured printers"
                     RiskLevel = "INFO"
-                    Compliance = ""
+                    Recommendation = ""
                 }
                 Write-LogMessage "INFO" "No printers configured on system" "PRINTER"
             } else {
@@ -2747,7 +2891,7 @@ function Get-PrinterAnalysis {
                         default { "Status Code: $PrinterStatus" }
                     }
                     
-                    $PrinterCompliance = if ($PrinterStatus -eq 7) {
+                    $PrinterRecommendation = if ($PrinterStatus -eq 7) {
                         "Offline printers should be investigated and restored"
                     } elseif ($PrinterStatus -eq 6) {
                         "Stopped printers may indicate driver or connectivity issues"
@@ -2762,7 +2906,7 @@ function Get-PrinterAnalysis {
                         Value = "$PrinterName"
                         Details = "Type: $PrinterType, Status: $StatusText, Driver: $DriverName"
                         RiskLevel = $PrinterRisk
-                        Compliance = $PrinterCompliance
+                        Recommendation = ""
                     }
                     
                     Write-LogMessage "INFO" "$PrinterType printer '$PrinterName': $StatusText" "PRINTER"
@@ -2775,7 +2919,7 @@ function Get-PrinterAnalysis {
                     Value = "$PrinterCount total printers"
                     Details = "Local: $LocalPrinters, Network: $NetworkPrinters, Default: $DefaultPrinter"
                     RiskLevel = "INFO"
-                    Compliance = ""
+                    Recommendation = ""
                 }
                 
                 Write-LogMessage "INFO" "Printer Summary: $PrinterCount total ($LocalPrinters local, $NetworkPrinters network)" "PRINTER"
@@ -2799,7 +2943,7 @@ function Get-PrinterAnalysis {
                     Value = "$UniqueDrivers unique drivers installed"
                     Details = "Total driver installations: $DriverCount"
                     RiskLevel = "INFO"
-                    Compliance = ""
+                    Recommendation = ""
                 }
                 
                 Write-LogMessage "INFO" "Printer Drivers: $UniqueDrivers unique drivers, $DriverCount total installations" "PRINTER"
@@ -2822,7 +2966,7 @@ function Get-PrinterAnalysis {
                     $SNMPEnabled = $Port.SNMPEnabled
                     
                     $PortRisk = if (-not $SNMPEnabled -and $Port.Protocol -eq 1) { "MEDIUM" } else { "LOW" }
-                    $PortCompliance = if (-not $SNMPEnabled -and $Port.Protocol -eq 1) {
+                    $PortRecommendation = if (-not $SNMPEnabled -and $Port.Protocol -eq 1) {
                         "Consider enabling SNMP for better printer monitoring"
                     } else { "" }
                     
@@ -2832,7 +2976,7 @@ function Get-PrinterAnalysis {
                         Value = "${HostAddress}:${PortNumber}"
                         Details = "Port: $PortName, SNMP Enabled: $SNMPEnabled"
                         RiskLevel = $PortRisk
-                        Compliance = $PortCompliance
+                        Recommendation = ""
                     }
                     
                     Write-LogMessage "INFO" "Network printer port: $PortName -> ${HostAddress}:${PortNumber}" "PRINTER"
@@ -2852,7 +2996,7 @@ function Get-PrinterAnalysis {
                 $StuckJobs = $PrintJobs | Where-Object { $_.Status -like "*Error*" -or $_.Status -like "*Paused*" } | Measure-Object | Select-Object -ExpandProperty Count
                 
                 $QueueRisk = if ($StuckJobs -gt 0) { "MEDIUM" } elseif ($JobCount -gt 10) { "MEDIUM" } else { "LOW" }
-                $QueueCompliance = if ($StuckJobs -gt 0) {
+                $QueueRecommendation = if ($StuckJobs -gt 0) {
                     "Clear stuck print jobs to maintain system performance"
                 } elseif ($JobCount -gt 10) {
                     "Large print queue may indicate printer or network issues"
@@ -2864,7 +3008,7 @@ function Get-PrinterAnalysis {
                     Value = "$JobCount jobs queued"
                     Details = "Active jobs: $JobCount, Stuck/Error jobs: $StuckJobs"
                     RiskLevel = $QueueRisk
-                    Compliance = $QueueCompliance
+                    Recommendation = ""
                 }
                 
                 Write-LogMessage "INFO" "Print queue: $JobCount jobs ($StuckJobs stuck/error)" "PRINTER"
@@ -2875,7 +3019,7 @@ function Get-PrinterAnalysis {
                     Value = "Empty"
                     Details = "No print jobs currently queued"
                     RiskLevel = "INFO"
-                    Compliance = ""
+                    Recommendation = ""
                 }
                 
                 Write-LogMessage "INFO" "Print queue is empty" "PRINTER"
@@ -2909,7 +3053,7 @@ function Get-NetworkAnalysis {
         network shares, and network security settings.
         
     .OUTPUTS
-        Array of PSCustomObjects with Category, Item, Value, Details, RiskLevel, Compliance
+        Array of PSCustomObjects with Category, Item, Value, Details, RiskLevel, Recommendation
         
     .NOTES
         Requires: Write-LogMessage function
@@ -2933,7 +3077,7 @@ function Get-NetworkAnalysis {
                 Value = "$($ActiveAdapters.Count) active, $($DisconnectedAdapters.Count) disconnected"
                 Details = "Total adapters: $($NetworkAdapters.Count)"
                 RiskLevel = "INFO"
-                Compliance = ""
+                Recommendation = ""
             }
             
             foreach ($Adapter in $ActiveAdapters) {
@@ -2948,7 +3092,7 @@ function Get-NetworkAnalysis {
                     Value = "Connected"
                     Details = "$ConnectionName ($AdapterName), Speed: $Speed, MAC: $MACAddress"
                     RiskLevel = "INFO"
-                    Compliance = ""
+                    Recommendation = ""
                 }
                 
                 Write-LogMessage "INFO" "Active adapter: $ConnectionName - $Speed" "NETWORK"
@@ -2996,7 +3140,7 @@ function Get-NetworkAnalysis {
                             "LOW"
                         }
                         
-                        $IPCompliance = if (-not $DHCPEnabled -and $IPType -eq "IPv4") {
+                        $IPRecommendation = if (-not $DHCPEnabled -and $IPType -eq "IPv4") {
                             "Static IP configuration should be documented and managed"
                         } else { "" }
                         
@@ -3008,7 +3152,7 @@ function Get-NetworkAnalysis {
                             Value = "$IPAddress ($ConfigType)"
                             Details = "$Description, Subnet: $SubnetMask, $GatewayInfo"
                             RiskLevel = $IPRisk
-                            Compliance = $IPCompliance
+                            Recommendation = ""
                         }
                         
                         Write-LogMessage "INFO" "IP Config: $IPAddress ($ConfigType) on $Description" "NETWORK"
@@ -3019,7 +3163,7 @@ function Get-NetworkAnalysis {
                 if ($DNSServers) {
                     $DNSList = $DNSServers -join ", "
                     $DNSRisk = "LOW"
-                    $DNSCompliance = ""
+                    $DNSRecommendation = ""
                     
                     # Check for potentially insecure DNS servers
                     $PublicDNS = @("8.8.8.8", "8.8.4.4", "1.1.1.1", "1.0.0.1", "208.67.222.222", "208.67.220.220")
@@ -3027,7 +3171,7 @@ function Get-NetworkAnalysis {
                     
                     if ($HasPublicDNS) {
                         $DNSRisk = "MEDIUM"
-                        $DNSCompliance = "Consider using internal DNS servers for better security control"
+                        $DNSRecommendation = "Consider using internal DNS servers for better security control"
                     }
                     
                     $Results += [PSCustomObject]@{
@@ -3036,7 +3180,7 @@ function Get-NetworkAnalysis {
                         Value = $DNSServers.Count.ToString() + " servers configured"
                         Details = "DNS Servers: $DNSList"
                         RiskLevel = $DNSRisk
-                        Compliance = $DNSCompliance
+                        Recommendation = ""
                     }
                     
                     Write-LogMessage "INFO" "DNS servers: $DNSList" "NETWORK"
@@ -3063,7 +3207,7 @@ function Get-NetworkAnalysis {
                        elseif ($TCPPortCount -gt 50) { "MEDIUM" } 
                        else { "LOW" }
             
-            $PortCompliance = if ($OpenRiskyPorts.Count -gt 0) {
+            $PortRecommendation = if ($OpenRiskyPorts.Count -gt 0) {
                 "Review open ports for security risks - found potentially risky ports"
             } elseif ($TCPPortCount -gt 50) {
                 "Large number of open ports may increase attack surface"
@@ -3075,7 +3219,7 @@ function Get-NetworkAnalysis {
                 Value = "$TCPPortCount TCP, $UDPPortCount UDP"
                 Details = "Risky TCP ports open: $($OpenRiskyPorts.Count)"
                 RiskLevel = $PortRisk
-                Compliance = $PortCompliance
+                Recommendation = ""
             }
             
             # Detail risky ports if found - header + detail format
@@ -3088,7 +3232,7 @@ function Get-NetworkAnalysis {
                     Value = "$($UniqueRiskyPorts.Count) high-risk ports detected"
                     Details = "Network services that may present security risks"
                     RiskLevel = "HIGH"
-                    Compliance = "Secure or disable unnecessary network services"
+                    Recommendation = "Secure or disable unnecessary network services"
                 }
                 
                 # Individual detail entries without compliance duplication
@@ -3121,7 +3265,7 @@ function Get-NetworkAnalysis {
                         Value = "$ServiceName"
                         Details = "Process: $ProcessName (PID: $ProcessId)"
                         RiskLevel = "INFO"
-                        Compliance = ""
+                        Recommendation = ""
                     }
                     
                     Write-LogMessage "WARN" "Risky port open: $PortNumber ($ServiceName) - Process: $ProcessName" "NETWORK"
@@ -3178,7 +3322,7 @@ function Get-NetworkAnalysis {
                     Value = $RDPStatus
                     Details = "RDP is accessible$PortText. This provides remote access to the system and should be secured with strong authentication, network restrictions, and monitoring."
                     RiskLevel = "HIGH"
-                    Compliance = "Secure remote access - use VPN, strong auth, restrict source IPs, enable logging"
+                    Recommendation = "Secure remote access - use VPN, strong auth, restrict source IPs, enable logging"
                 }
                 
                 Write-LogMessage "WARN" "RDP detected: $RDPStatus on port $RDPPort" "NETWORK"
@@ -3189,7 +3333,7 @@ function Get-NetworkAnalysis {
                     Value = "Disabled"
                     Details = "RDP is properly disabled"
                     RiskLevel = "LOW"
-                    Compliance = ""
+                    Recommendation = ""
                 }
                 
                 Write-LogMessage "INFO" "RDP is disabled - good security posture" "NETWORK"
@@ -3209,7 +3353,7 @@ function Get-NetworkAnalysis {
                         elseif ($AdminShares.Count -gt 3) { "MEDIUM" } 
                         else { "LOW" }
             
-            $ShareCompliance = if ($UserShares.Count -gt 0) {
+            $ShareRecommendation = if ($UserShares.Count -gt 0) {
                 "Review network share permissions and access controls"
             } else { "" }
             
@@ -3219,7 +3363,7 @@ function Get-NetworkAnalysis {
                 Value = "$($NetworkShares.Count) total shares"
                 Details = "User shares: $($UserShares.Count), Admin shares: $($AdminShares.Count)"
                 RiskLevel = $ShareRisk
-                Compliance = $ShareCompliance
+                Recommendation = ""
             }
             
             foreach ($Share in $UserShares) {
@@ -3233,7 +3377,7 @@ function Get-NetworkAnalysis {
                     Value = $ShareName
                     Details = "Path: $SharePath, Description: $ShareDescription"
                     RiskLevel = "MEDIUM"
-                    Compliance = "Ensure proper access controls and monitoring for network shares"
+                    Recommendation = "Ensure proper access controls and monitoring for network shares"
                 }
                 
                 Write-LogMessage "INFO" "Network share: $ShareName -> $SharePath" "NETWORK"
@@ -3255,7 +3399,7 @@ function Get-NetworkAnalysis {
             $FileSharingEnabled = $FileSharing.Count -gt 0
             
             $DiscoveryRisk = if ($DiscoveryEnabled) { "MEDIUM" } else { "LOW" }
-            $DiscoveryCompliance = if ($DiscoveryEnabled) {
+            $DiscoveryRecommendation = if ($DiscoveryEnabled) {
                 "Network discovery should be disabled on untrusted networks"
             } else { "" }
             
@@ -3265,11 +3409,11 @@ function Get-NetworkAnalysis {
                 Value = if ($DiscoveryEnabled) { "Enabled" } else { "Disabled" }
                 Details = "Network discovery firewall rules: $($NetworkDiscovery.Count) enabled"
                 RiskLevel = $DiscoveryRisk
-                Compliance = $DiscoveryCompliance
+                Recommendation = ""
             }
             
             $SharingRisk = if ($FileSharingEnabled) { "MEDIUM" } else { "LOW" }
-            $SharingCompliance = if ($FileSharingEnabled) {
+            $SharingRecommendation = if ($FileSharingEnabled) {
                 "File sharing should be carefully controlled and monitored"
             } else { "" }
             
@@ -3279,7 +3423,7 @@ function Get-NetworkAnalysis {
                 Value = if ($FileSharingEnabled) { "Enabled" } else { "Disabled" }
                 Details = "File sharing firewall rules: $($FileSharing.Count) enabled"
                 RiskLevel = $SharingRisk
-                Compliance = $SharingCompliance
+                Recommendation = ""
             }
             
             Write-LogMessage "INFO" "Network Discovery: $(if ($DiscoveryEnabled) {'Enabled'} else {'Disabled'}), File Sharing: $(if ($FileSharingEnabled) {'Enabled'} else {'Disabled'})" "NETWORK"
@@ -3300,7 +3444,7 @@ function Get-NetworkAnalysis {
                     Value = "$ProfileCount saved profiles"
                     Details = "Saved wireless network configurations"
                     RiskLevel = "MEDIUM"
-                    Compliance = "Review wireless network profiles and remove unused ones"
+                    Recommendation = "Review wireless network profiles and remove unused ones"
                 }
                 
                 Write-LogMessage "INFO" "Wireless profiles: $ProfileCount saved" "NETWORK"
@@ -3334,7 +3478,7 @@ function Get-ProcessAnalysis {
         based on process characteristics and known threat indicators.
         
     .OUTPUTS
-        Array of PSCustomObjects with Category, Item, Value, Details, RiskLevel, Compliance
+        Array of PSCustomObjects with Category, Item, Value, Details, RiskLevel, Recommendation
         
     .NOTES
         Requires: Write-LogMessage function
@@ -3359,7 +3503,7 @@ function Get-ProcessAnalysis {
                 Value = "$ProcessCount total processes"
                 Details = "System processes: $($SystemProcesses.Count), User processes: $($UserProcesses.Count)"
                 RiskLevel = "INFO"
-                Compliance = ""
+                Recommendation = ""
             }
             
             # Check for high CPU usage processes - header + detail format
@@ -3376,7 +3520,7 @@ function Get-ProcessAnalysis {
                     Value = "$($HighCPUProcesses.Count) processes detected"
                     Details = "Processes using significant CPU time may impact system performance"
                     RiskLevel = $CPURisk
-                    Compliance = if ($TopCPU -gt 180) { "Investigate high CPU usage processes for performance impact" } else { "" }
+                    Recommendation = if ($TopCPU -gt 180) { "Investigate high CPU usage processes for performance impact" } else { "" }
                 }
                 
                 # Individual detail entries without compliance duplication
@@ -3392,7 +3536,7 @@ function Get-ProcessAnalysis {
                         Value = "$ProcessName (PID: $ProcessId)"
                         Details = "CPU: $CPU seconds, Memory: $Memory MB"
                         RiskLevel = "INFO"
-                        Compliance = ""
+                        Recommendation = ""
                     }
                     
                     Write-LogMessage "INFO" "High CPU process: $ProcessName - CPU: $CPU seconds, Memory: $Memory MB" "PROCESS"
@@ -3418,7 +3562,7 @@ function Get-ProcessAnalysis {
                 Value = "$($Services.Count) total services"
                 Details = "Running: $($RunningServices.Count), Stopped: $($StoppedServices.Count), Auto-start: $($StartupServices.Count)"
                 RiskLevel = "INFO"
-                Compliance = ""
+                Recommendation = ""
             }
             
             # Check for critical security services
@@ -3438,7 +3582,7 @@ function Get-ProcessAnalysis {
                 if ($Service) {
                     $ServiceStatus = $Service.Status
                     $ServiceRisk = if ($ServiceStatus -ne "Running") { "HIGH" } else { "LOW" }
-                    $ServiceCompliance = if ($ServiceStatus -ne "Running") {
+                    $ServiceRecommendation = if ($ServiceStatus -ne "Running") {
                         "Critical security service should be running"
                     } else { "" }
                     
@@ -3448,7 +3592,7 @@ function Get-ProcessAnalysis {
                         Value = $ServiceStatus
                         Details = "Critical security service ($ServiceName)"
                         RiskLevel = $ServiceRisk
-                        Compliance = $ServiceCompliance
+                        Recommendation = ""
                     }
                     
                     Write-LogMessage "INFO" "Security service $DisplayName`: $ServiceStatus" "PROCESS"
@@ -3459,7 +3603,7 @@ function Get-ProcessAnalysis {
                         Value = "Not Found"
                         Details = "Critical security service ($ServiceName) not found"
                         RiskLevel = "MEDIUM"
-                        Compliance = "Security service not found - may indicate system compromise"
+                        Recommendation = "Security service not found - may indicate system compromise"
                     }
                     
                     Write-LogMessage "WARN" "Security service not found: $DisplayName" "PROCESS"
@@ -3536,7 +3680,7 @@ function Get-ProcessAnalysis {
             
             $StartupCount = $StartupPrograms.Count
             $StartupRisk = if ($StartupCount -gt 20) { "MEDIUM" } elseif ($StartupCount -gt 30) { "HIGH" } else { "LOW" }
-            $StartupCompliance = if ($StartupCount -gt 25) {
+            $StartupRecommendation = if ($StartupCount -gt 25) {
                 "Large number of startup programs may impact boot time and security"
             } else { "" }
             
@@ -3546,7 +3690,7 @@ function Get-ProcessAnalysis {
                 Value = "$StartupCount programs configured"
                 Details = "Registry entries and startup folder items"
                 RiskLevel = $StartupRisk
-                Compliance = $StartupCompliance
+                Recommendation = ""
             }
             
             # Check for startup entries from unusual locations
@@ -3562,7 +3706,7 @@ function Get-ProcessAnalysis {
                         Value = $Unusual.Name
                         Details = "Running from: $($Unusual.Command). Programs should typically run from Program Files or system directories."
                         RiskLevel = "HIGH"
-                        Compliance = "Investigate startup programs from temporary or unusual locations"
+                        Recommendation = "Investigate startup programs from temporary or unusual locations"
                     }
                     
                     Write-LogMessage "WARN" "Startup from unusual location: $($Unusual.Name) - $($Unusual.Command)" "PROCESS"
@@ -3593,7 +3737,7 @@ function Get-ProcessAnalysis {
                 Value = "Memory: $MemoryUsagePercent% used"
                 Details = "Total RAM: $TotalMemoryGB GB, Processors: $ProcessorCount, Active processes: $ProcessCount"
                 RiskLevel = if ($MemoryUsagePercent -gt 85) { "HIGH" } elseif ($MemoryUsagePercent -gt 75) { "MEDIUM" } else { "LOW" }
-                Compliance = if ($MemoryUsagePercent -gt 80) { "High memory usage may impact system performance" } else { "" }
+                Recommendation = if ($MemoryUsagePercent -gt 80) { "High memory usage may impact system performance" } else { "" }
             }
             
             Write-LogMessage "INFO" "System resources: $MemoryUsagePercent% memory used, $ProcessorCount processors" "PROCESS"
@@ -3625,19 +3769,64 @@ function Get-EventLogAnalysis {
         logon failures, system errors, security policy changes, and other critical events
         that may indicate security issues or system problems.
         
+        Performance optimized for servers with extensive log histories.
+        
     .OUTPUTS
-        Array of PSCustomObjects with Category, Item, Value, Details, RiskLevel, Compliance
+        Array of PSCustomObjects with Category, Item, Value, Details, RiskLevel, Recommendation
         
     .NOTES
         Requires: Write-LogMessage function
         Permissions: Local user (Event Log read access)
+        Performance: Limits analysis timeframe based on system type for optimal performance
     #>
     
     Write-LogMessage "INFO" "Analyzing Windows Event Logs for security events..." "EVENTLOG"
     
     try {
         $Results = @()
-        $AnalysisStartTime = (Get-Date).AddDays(-7)  # Analyze last 7 days
+        
+        # Auto-detect system type and get configuration settings
+        try {
+            $OSInfo = Get-CimInstance -ClassName Win32_OperatingSystem -ErrorAction SilentlyContinue
+            $IsServer = $OSInfo.ProductType -ne 1  # ProductType: 1=Workstation, 2=DC, 3=Server
+        }
+        catch {
+            $IsServer = $false
+        }
+        
+        # Get event log configuration from config (with fallback defaults)
+        $EventLogConfig = $null
+        if (Get-Variable -Name "Config" -Scope Global -ErrorAction SilentlyContinue) {
+            $EventLogConfig = $Global:Config.settings.eventlog
+        }
+        
+        # Set analysis timeframes based on configuration or intelligent defaults
+        if ($EventLogConfig) {
+            if ($IsServer) {
+                $AnalysisDays = if ($EventLogConfig.analysis_days) { $EventLogConfig.analysis_days } else { 3 }
+                $MaxEventsPerQuery = if ($EventLogConfig.max_events_per_query) { $EventLogConfig.max_events_per_query } else { 500 }
+            } else {
+                $AnalysisDays = if ($EventLogConfig.workstation_analysis_days) { $EventLogConfig.workstation_analysis_days } else { 7 }
+                $MaxEventsPerQuery = if ($EventLogConfig.workstation_max_events) { $EventLogConfig.workstation_max_events } else { 1000 }
+            }
+            Write-LogMessage "INFO" "Using configured event log settings: $AnalysisDays days, max $MaxEventsPerQuery events" "EVENTLOG"
+        } else {
+            # Fallback to hardcoded defaults if no config available
+            if ($IsServer) {
+                $AnalysisDays = 3
+                $MaxEventsPerQuery = 500
+                Write-LogMessage "INFO" "Server detected - using default: 3 days, max 500 events (no config)" "EVENTLOG"
+            } else {
+                $AnalysisDays = 7
+                $MaxEventsPerQuery = 1000
+                Write-LogMessage "INFO" "Workstation detected - using default: 7 days, max 1000 events (no config)" "EVENTLOG"
+            }
+        }
+        
+        $AnalysisStartTime = (Get-Date).AddDays(-$AnalysisDays)
+        
+        $SystemType = if ($IsServer) { "Server" } else { "Workstation" }
+        Write-LogMessage "INFO" "$SystemType detected - analyzing last $AnalysisDays days (max $MaxEventsPerQuery events per query)" "EVENTLOG"
         
         # Define critical event IDs to monitor
         $CriticalEvents = @{
@@ -3670,7 +3859,7 @@ function Get-EventLogAnalysis {
                 $SecurityUsagePercent = [math]::Round(($SecurityLogSize / $SecurityMaxSize) * 100, 1)
                 
                 $SecurityRisk = if ($SecurityUsagePercent -gt 90) { "HIGH" } elseif ($SecurityUsagePercent -gt 75) { "MEDIUM" } else { "LOW" }
-                $SecurityCompliance = if ($SecurityUsagePercent -gt 85) {
+                $SecurityRecommendation = if ($SecurityUsagePercent -gt 85) {
                     "Security event log approaching capacity - consider archiving"
                 } else { "" }
                 
@@ -3680,7 +3869,7 @@ function Get-EventLogAnalysis {
                     Value = "$SecurityUsagePercent% full"
                     Details = "Size: $SecurityLogSize MB / $SecurityMaxSize MB, Entry count available via event queries"
                     RiskLevel = $SecurityRisk
-                    Compliance = $SecurityCompliance
+                    Recommendation = $SecurityRecommendation
                 }
                 
                 Write-LogMessage "INFO" "Security log: $SecurityUsagePercent% full ($SecurityLogSize MB / $SecurityMaxSize MB)" "EVENTLOG"
@@ -3697,7 +3886,7 @@ function Get-EventLogAnalysis {
                     Value = "$SystemUsagePercent% full"
                     Details = "Size: $SystemLogSize MB / $SystemMaxSize MB, Entry count available via event queries"
                     RiskLevel = "INFO"
-                    Compliance = ""
+                    Recommendation = ""
                 }
                 
                 Write-LogMessage "INFO" "System log: $SystemUsagePercent% full ($SystemLogSize MB / $SystemMaxSize MB)" "EVENTLOG"
@@ -3717,7 +3906,8 @@ function Get-EventLogAnalysis {
             try {
                 Write-LogMessage "INFO" "Checking for Event ID $EventID ($Description) in $LogName log..." "EVENTLOG"
                 
-                $Events = Get-EventLog -LogName $LogName -After $AnalysisStartTime -InstanceId $EventID -ErrorAction SilentlyContinue
+                # Performance-limited event query
+                $Events = Get-EventLog -LogName $LogName -After $AnalysisStartTime -InstanceId $EventID -Newest $MaxEventsPerQuery -ErrorAction SilentlyContinue
                 
                 if ($Events) {
                     $EventCount = $Events.Count
@@ -3726,39 +3916,43 @@ function Get-EventLogAnalysis {
                     
                     # Determine risk level based on event type and frequency
                     $RiskLevel = $BaseRiskLevel
-                    $Compliance = ""
+                    $Recommendation = ""
                     
                     # Special handling for high-frequency events
                     if ($EventID -eq 4625 -and $EventCount -gt 50) {  # Multiple failed logons
                         $RiskLevel = "HIGH"
-                        $Compliance = "Investigate multiple failed logon attempts - possible brute force attack"
+                        $Recommendation = "Investigate multiple failed logon attempts - possible brute force attack"
                     }
                     elseif ($EventID -eq 4740 -and $EventCount -gt 5) {  # Multiple account lockouts
                         $RiskLevel = "HIGH"
-                        $Compliance = "Multiple account lockouts may indicate attack or policy issues"
+                        $Recommendation = "Multiple account lockouts may indicate attack or policy issues"
                     }
                     elseif ($EventID -eq 6008 -and $EventCount -gt 3) {  # Multiple unexpected shutdowns
                         $RiskLevel = "HIGH"
-                        $Compliance = "Multiple unexpected shutdowns may indicate system instability"
+                        $Recommendation = "Multiple unexpected shutdowns may indicate system instability"
                     }
                     elseif ($EventID -eq 7034 -and $EventCount -gt 10) {  # Multiple service crashes
                         $RiskLevel = "HIGH"
-                        $Compliance = "Multiple service crashes may indicate system problems"
+                        $Recommendation = "Multiple service crashes may indicate system problems"
                     }
                     elseif ($EventID -eq 4625) {
-                        $Compliance = "Monitor failed logon attempts for security threats"
+                        $Recommendation = "Monitor failed logon attempts for security threats"
                     }
                     elseif ($EventID -eq 4672) {
-                        $Compliance = "Monitor special privilege assignments for unauthorized elevation"
+                        $Recommendation = "Monitor special privilege assignments for unauthorized elevation"
                     }
+                    
+                    # Dynamic timeframe display using configured values
+                    $TimeframeDays = "$AnalysisDays days"
+                    $EventCountDisplay = if ($EventCount -eq $MaxEventsPerQuery) { "$EventCount+ events" } else { "$EventCount events" }
                     
                     $Results += [PSCustomObject]@{
                         Category = "Security Events"
                         Item = $Description
-                        Value = "$EventCount events (7 days)"
+                        Value = "$EventCountDisplay ($TimeframeDays)"
                         Details = "Event ID: $EventID, Most recent: $MostRecentTime"
                         RiskLevel = $RiskLevel
-                        Compliance = $Compliance
+                        Recommendation = $Recommendation
                     }
                     
                     Write-LogMessage "INFO" "Event ID $EventID`: $EventCount events found, most recent: $MostRecentTime" "EVENTLOG"
@@ -3775,13 +3969,16 @@ function Get-EventLogAnalysis {
             }
         }
         
-        # Check for Windows Defender events
+        # Check for Windows Defender events (performance limited)
         try {
-            $DefenderEvents = Get-WinEvent -FilterHashtable @{LogName="Microsoft-Windows-Windows Defender/Operational"; StartTime=$AnalysisStartTime} -ErrorAction SilentlyContinue
+            $DefenderEvents = Get-WinEvent -FilterHashtable @{LogName="Microsoft-Windows-Windows Defender/Operational"; StartTime=$AnalysisStartTime} -MaxEvents $MaxEventsPerQuery -ErrorAction SilentlyContinue
             
             if ($DefenderEvents) {
                 $ThreatEvents = $DefenderEvents | Where-Object { $_.Id -in @(1006, 1007, 1008, 1009, 1116, 1117) }
                 $ScanEvents = $DefenderEvents | Where-Object { $_.Id -in @(1000, 1001, 1002) }
+                
+                # Use dynamic timeframe for display
+                $TimeframeDays = "$AnalysisDays days"
                 
                 if ($ThreatEvents) {
                     $ThreatCount = $ThreatEvents.Count
@@ -3789,19 +3986,19 @@ function Get-EventLogAnalysis {
                         Category = "Security Events"
                         Item = "Windows Defender Threats"
                         Value = "$ThreatCount threats detected"
-                        Details = "Threat detection events in last 7 days"
+                        Details = "Threat detection events in last $TimeframeDays"
                         RiskLevel = "HIGH"
-                        Compliance = "Investigate and remediate detected security threats"
+                        Recommendation = "Investigate and remediate detected security threats"
                     }
-                    Write-LogMessage "WARN" "Windows Defender: $ThreatCount threats detected in last 7 days" "EVENTLOG"
+                    Write-LogMessage "WARN" "Windows Defender: $ThreatCount threats detected in last $TimeframeDays" "EVENTLOG"
                 } else {
                     $Results += [PSCustomObject]@{
                         Category = "Security Events"
                         Item = "Windows Defender Threats"
                         Value = "0 threats detected"
-                        Details = "No threat detection events in last 7 days"
+                        Details = "No threat detection events in last $TimeframeDays"
                         RiskLevel = "LOW"
-                        Compliance = ""
+                        Recommendation = ""
                     }
                 }
                 
@@ -3811,11 +4008,11 @@ function Get-EventLogAnalysis {
                         Category = "Security Events"
                         Item = "Windows Defender Scans"
                         Value = "$ScanCount scans performed"
-                        Details = "Antivirus scan events in last 7 days"
+                        Details = "Antivirus scan events in last $TimeframeDays"
                         RiskLevel = "INFO"
-                        Compliance = ""
+                        Recommendation = ""
                     }
-                    Write-LogMessage "INFO" "Windows Defender: $ScanCount scans performed in last 7 days" "EVENTLOG"
+                    Write-LogMessage "INFO" "Windows Defender: $ScanCount scans performed in last $TimeframeDays" "EVENTLOG"
                 }
             }
         }
@@ -3834,7 +4031,7 @@ function Get-EventLogAnalysis {
                 }
                 
                 $PSRisk = if ($SuspiciousPS.Count -gt 0) { "HIGH" } elseif ($PSEventCount -gt 100) { "MEDIUM" } else { "LOW" }
-                $PSCompliance = if ($SuspiciousPS.Count -gt 0) {
+                $PSRecommendation = if ($SuspiciousPS.Count -gt 0) {
                     "Investigate suspicious PowerShell execution patterns"
                 } elseif ($PSEventCount -gt 100) {
                     "High PowerShell usage - review for legitimate business needs"
@@ -3868,7 +4065,7 @@ function Get-EventLogAnalysis {
                     Value = "$PSEventCount executions (7 days)"
                     Details = "$PatternDetails. Total suspicious events: $($SuspiciousPS.Count)"
                     RiskLevel = $PSRisk
-                    Compliance = $PSCompliance
+                    Recommendation = $PSRecommendation
                 }
                 
                 # Add raw PowerShell events to data collection for detailed analysis
@@ -3900,7 +4097,7 @@ function Get-EventLogAnalysis {
             if ($USBEvents) {
                 $USBCount = $USBEvents.Count
                 $USBRisk = if ($USBCount -gt 20) { "MEDIUM" } else { "LOW" }
-                $USBCompliance = if ($USBCount -gt 10) {
+                $USBRecommendation = if ($USBCount -gt 10) {
                     "Monitor USB device usage for data loss prevention"
                 } else { "" }
                 
@@ -3910,7 +4107,7 @@ function Get-EventLogAnalysis {
                     Value = "$USBCount USB events (7 days)"
                     Details = "USB device insertion/removal events"
                     RiskLevel = $USBRisk
-                    Compliance = $USBCompliance
+                    Recommendation = $USBRecommendation
                 }
                 
                 Write-LogMessage "INFO" "USB events: $USBCount device events in last 7 days" "EVENTLOG"
