@@ -99,6 +99,12 @@
         "collect_dns_records": false,
         "collect_iis_bindings": true,
         "max_ad_users": 1000,
-        "max_ad_groups": 500
+        "max_ad_groups": 500,
+        "eventlog": {
+            "analysis_days": 3,
+            "max_events_per_query": 500,
+            "workstation_analysis_days": 7,
+            "workstation_max_events": 1000
+        }
     }
 }

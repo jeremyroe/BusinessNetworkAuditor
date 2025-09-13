@@ -11,7 +11,7 @@ function Get-SystemInformation {
         and WSUS configuration details for security assessment.
         
     .OUTPUTS
-        Array of PSCustomObjects with Category, Item, Value, Details, RiskLevel, Compliance
+        Array of PSCustomObjects with Category, Item, Value, Details, RiskLevel, Recommendation
         
     .NOTES
         Requires: Write-LogMessage function
@@ -118,7 +118,7 @@ function Get-SystemInformation {
             Value = "$($OS.Caption) $($OS.Version)"
             Details = "Build: $($OS.BuildNumber), Install Date: $($OS.InstallDate)"
             RiskLevel = "INFO"
-            Compliance = ""
+            Recommendation = ""
         }
         
         # Hardware Info
@@ -128,7 +128,7 @@ function Get-SystemInformation {
             Value = "$($Computer.Manufacturer) $($Computer.Model)"
             Details = "RAM: $([math]::Round($Computer.TotalPhysicalMemory/1GB, 2))GB, Processors: $($Computer.NumberOfProcessors)"
             RiskLevel = "INFO"
-            Compliance = ""
+            Recommendation = ""
         }
         
         # Domain Status with Tenant Info
@@ -151,7 +151,7 @@ function Get-SystemInformation {
             Value = $DomainName
             Details = $DomainDetails
             RiskLevel = if ($AzureADJoined -or $DomainJoined) { "LOW" } else { "MEDIUM" }
-            Compliance = if (-not $AzureADJoined -and -not $DomainJoined) { "Consider domain or Azure AD joining for centralized management" } else { "" }
+            Recommendation = if (-not $AzureADJoined -and -not $DomainJoined) { "Consider domain or Azure AD joining for centralized management" } else { "" }
         }
         
         # WSUS Configuration Status
@@ -161,7 +161,7 @@ function Get-SystemInformation {
             Value = if ($WSUSConfigured) { "Configured" } else { "Not Configured" }
             Details = if ($WSUSConfigured) { "Server: $WSUSServer" } else { "Using Microsoft Update directly" }
             RiskLevel = "INFO"
-            Compliance = ""
+            Recommendation = ""
         }
         
         # MDM Enrollment Status (only for Azure AD joined systems)
@@ -172,7 +172,7 @@ function Get-SystemInformation {
                 Value = if ($MDMEnrolled) { "Enrolled" } else { "Not Enrolled" }
                 Details = if ($MDMEnrolled) { "Device enrolled in Mobile Device Management" } else { "Device not enrolled in MDM" }
                 RiskLevel = if ($MDMEnrolled) { "LOW" } else { "MEDIUM" }
-                Compliance = if (-not $MDMEnrolled) { "Consider MDM enrollment for device management" } else { "" }
+                Recommendation = if (-not $MDMEnrolled) { "Consider MDM enrollment for device management" } else { "" }
             }
         }
         

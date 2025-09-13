@@ -15,7 +15,7 @@ function Get-DHCPAnalysis {
         - Lease duration and renewal settings
         
     .OUTPUTS
-        Array of PSCustomObjects with Category, Item, Value, Details, RiskLevel, Compliance
+        Array of PSCustomObjects with Category, Item, Value, Details, RiskLevel, Recommendation
         
     .NOTES
         Requires: Write-LogMessage function, Add-RawDataCollection function
@@ -39,7 +39,7 @@ function Get-DHCPAnalysis {
                     Value = "Not Installed"
                     Details = "DHCP Server role is not installed on this system"
                     RiskLevel = "INFO"
-                    Compliance = ""
+                    Recommendation = ""
                 })
             }
         }
@@ -60,7 +60,7 @@ function Get-DHCPAnalysis {
                     Value = $DHCPService.Status
                     Details = "DHCP Server service detected but PowerShell module unavailable for detailed analysis"
                     RiskLevel = if ($DHCPService.Status -eq "Running") { "INFO" } else { "HIGH" }
-                    Compliance = "Install DhcpServer PowerShell module for complete DHCP analysis"
+                    Recommendation = "Install DhcpServer PowerShell module for complete DHCP analysis"
                 }
             }
             return $Results
@@ -79,7 +79,7 @@ function Get-DHCPAnalysis {
                 Value = "Failed to load DhcpServer module"
                 Details = $_.Exception.Message
                 RiskLevel = "ERROR"
-                Compliance = "Resolve DHCP module loading issue"
+                Recommendation = "Resolve DHCP module loading issue"
             })
         }
         
@@ -97,7 +97,7 @@ function Get-DHCPAnalysis {
                     Value = "Active"
                     Details = "DHCP Server is configured and accessible"
                     RiskLevel = "INFO"
-                    Compliance = ""
+                    Recommendation = ""
                 }
                 
                 # DHCP Server Settings
@@ -107,7 +107,7 @@ function Get-DHCPAnalysis {
                     Value = if ($DHCPServerSettings.ConflictDetectionAttempts -gt 0) { "Enabled ($($DHCPServerSettings.ConflictDetectionAttempts) attempts)" } else { "Disabled" }
                     Details = "Number of ping attempts to detect IP address conflicts before lease assignment"
                     RiskLevel = if ($DHCPServerSettings.ConflictDetectionAttempts -eq 0) { "MEDIUM" } else { "LOW" }
-                    Compliance = if ($DHCPServerSettings.ConflictDetectionAttempts -eq 0) { "Enable conflict detection for network stability" } else { "" }
+                    Recommendation = if ($DHCPServerSettings.ConflictDetectionAttempts -eq 0) { "Enable conflict detection for network stability" } else { "" }
                 }
                 
                 $Results += [PSCustomObject]@{
@@ -116,7 +116,7 @@ function Get-DHCPAnalysis {
                     Value = if ($DHCPServerSettings.AuditLogEnable) { "Enabled" } else { "Disabled" }
                     Details = "DHCP audit logging status for tracking lease assignments and renewals"
                     RiskLevel = if (-not $DHCPServerSettings.AuditLogEnable) { "MEDIUM" } else { "LOW" }
-                    Compliance = if (-not $DHCPServerSettings.AuditLogEnable) { "Enable DHCP audit logging for security monitoring" } else { "" }
+                    Recommendation = if (-not $DHCPServerSettings.AuditLogEnable) { "Enable DHCP audit logging for security monitoring" } else { "" }
                 }
             }
         }
@@ -157,7 +157,7 @@ function Get-DHCPAnalysis {
                             Value = "$($Scope.Name) - $UtilizationPercent%"
                             Details = "Scope: $($Scope.ScopeId), Range: $($Scope.StartRange) - $($Scope.EndRange), In Use: $($ScopeStats.InUse), Available: $($ScopeStats.Free)"
                             RiskLevel = $UtilizationRisk
-                            Compliance = if ($UtilizationPercent -ge 80) { "Consider expanding DHCP scope or reviewing lease duration" } else { "" }
+                            Recommendation = if ($UtilizationPercent -ge 80) { "Consider expanding DHCP scope or reviewing lease duration" } else { "" }
                         }
                         
                         # Get reservations for this scope
@@ -171,7 +171,7 @@ function Get-DHCPAnalysis {
                                 Value = "$($Scope.Name) - $ReservationCount reservations"
                                 Details = "Static IP reservations in scope $($Scope.ScopeId)"
                                 RiskLevel = "INFO"
-                                Compliance = ""
+                                Recommendation = ""
                             }
                         }
                         catch {
@@ -191,7 +191,7 @@ function Get-DHCPAnalysis {
                                     Value = "$($Scope.Name) - $ExclusionCount ranges"
                                     Details = "Excluded ranges: $ExclusionRanges"
                                     RiskLevel = "INFO"
-                                    Compliance = ""
+                                    Recommendation = ""
                                 }
                             }
                         }
@@ -209,7 +209,7 @@ function Get-DHCPAnalysis {
                             Value = "$($Scope.Name) - $([math]::Round($LeaseDurationDays, 1)) days"
                             Details = "DHCP lease duration for scope $($Scope.ScopeId)"
                             RiskLevel = $LeaseDurationRisk
-                            Compliance = if ($LeaseDurationDays -gt 30) { "Consider shorter lease duration for better IP management" } elseif ($LeaseDurationDays -lt 1) { "Very short lease duration may cause frequent renewals" } else { "" }
+                            Recommendation = if ($LeaseDurationDays -gt 30) { "Consider shorter lease duration for better IP management" } elseif ($LeaseDurationDays -lt 1) { "Very short lease duration may cause frequent renewals" } else { "" }
                         }
                         
                         # Store scope data for raw export
@@ -256,7 +256,7 @@ function Get-DHCPAnalysis {
                             Value = "$($Scope.Name)"
                             Details = "Range: $($Scope.StartRange) - $($Scope.EndRange), Status: $($Scope.State) (Statistics unavailable)"
                             RiskLevel = "INFO"
-                            Compliance = ""
+                            Recommendation = ""
                         }
                     }
                 }
@@ -274,7 +274,7 @@ function Get-DHCPAnalysis {
                     Value = "$TotalScopes total scopes ($ActiveScopes active)"
                     Details = "Total configured DHCP scopes on this server"
                     RiskLevel = "INFO"
-                    Compliance = ""
+                    Recommendation = ""
                 }
             } else {
                 $Results += [PSCustomObject]@{
@@ -283,7 +283,7 @@ function Get-DHCPAnalysis {
                     Value = "No scopes configured"
                     Details = "DHCP Server role is installed but no scopes are configured"
                     RiskLevel = "MEDIUM"
-                    Compliance = "Configure DHCP scopes if this server should provide DHCP services"
+                    Recommendation = "Configure DHCP scopes if this server should provide DHCP services"
                 }
             }
         }
@@ -295,7 +295,7 @@ function Get-DHCPAnalysis {
                 Value = "Failed"
                 Details = "Unable to retrieve DHCP scope information: $($_.Exception.Message)"
                 RiskLevel = "ERROR"
-                Compliance = "Investigate DHCP scope access permissions"
+                Recommendation = "Investigate DHCP scope access permissions"
             }
         }
         
@@ -322,7 +322,7 @@ function Get-DHCPAnalysis {
                             Value = "$OptionName"
                             Details = "Option $($Option.OptionId): $OptionValue"
                             RiskLevel = "INFO"
-                            Compliance = ""
+                            Recommendation = ""
                         }
                     }
                 }
@@ -344,7 +344,7 @@ function Get-DHCPAnalysis {
             Value = "Failed"
             Details = "Error during DHCP analysis: $($_.Exception.Message)"
             RiskLevel = "ERROR"
-            Compliance = "Investigate DHCP analysis failure"
+            Recommendation = "Investigate DHCP analysis failure"
         })
     }
 }

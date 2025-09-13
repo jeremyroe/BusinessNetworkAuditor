@@ -11,7 +11,7 @@ function Get-DiskSpaceAnalysis {
         free space percentages, disk health status, and storage risk assessment.
         
     .OUTPUTS
-        Array of PSCustomObjects with Category, Item, Value, Details, RiskLevel, Compliance
+        Array of PSCustomObjects with Category, Item, Value, Details, RiskLevel, Recommendation
         
     .NOTES
         Requires: Write-LogMessage function
@@ -36,7 +36,7 @@ function Get-DiskSpaceAnalysis {
                         elseif ($FreeSpacePercent -lt 20) { "MEDIUM" } 
                         else { "LOW" }
             
-            $Compliance = if ($FreeSpacePercent -lt 15) { 
+            $Recommendation = if ($FreeSpacePercent -lt 15) { 
                 "Maintain adequate free disk space for system operations" 
             } else { "" }
             
@@ -46,7 +46,7 @@ function Get-DiskSpaceAnalysis {
                 Value = "$FreeSpacePercent% free"
                 Details = "Total: $TotalSizeGB GB, Used: $UsedSpaceGB GB, Free: $FreeSpaceGB GB"
                 RiskLevel = $RiskLevel
-                Compliance = $Compliance
+                Recommendation = ""
             }
             
             Write-LogMessage "INFO" "Drive $DriveLetter - $FreeSpacePercent% free ($FreeSpaceGB GB / $TotalSizeGB GB)" "DISK"
@@ -61,7 +61,7 @@ function Get-DiskSpaceAnalysis {
                 $DiskStatus = $Disk.Status
                 
                 $HealthRisk = if ($DiskStatus -ne "OK") { "HIGH" } else { "LOW" }
-                $HealthCompliance = if ($DiskStatus -ne "OK") { 
+                $HealthRecommendation = if ($DiskStatus -ne "OK") { 
                     "Monitor disk health and replace failing drives" 
                 } else { "" }
                 
@@ -71,7 +71,7 @@ function Get-DiskSpaceAnalysis {
                     Value = $DiskStatus
                     Details = "$DiskModel ($DiskSize GB)"
                     RiskLevel = $HealthRisk
-                    Compliance = $HealthCompliance
+                    Recommendation = ""
                 }
                 
                 Write-LogMessage "INFO" "Physical disk: $DiskModel - Status: $DiskStatus" "DISK"

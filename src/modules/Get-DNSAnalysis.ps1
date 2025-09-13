@@ -14,7 +14,7 @@ function Get-DNSAnalysis {
         - DNS security settings (read-only queries only)
         
     .OUTPUTS
-        Array of PSCustomObjects with Category, Item, Value, Details, RiskLevel, Compliance
+        Array of PSCustomObjects with Category, Item, Value, Details, RiskLevel, Recommendation
         
     .NOTES
         Version: 1.3.0
@@ -39,7 +39,7 @@ function Get-DNSAnalysis {
                     Value = "Not Installed"
                     Details = "DNS Server role is not installed on this system"
                     RiskLevel = "INFO"
-                    Compliance = ""
+                    Recommendation = ""
                 })
             }
         }
@@ -60,7 +60,7 @@ function Get-DNSAnalysis {
                     Value = $DNSService.Status
                     Details = "DNS Server service detected but PowerShell module unavailable for detailed analysis"
                     RiskLevel = if ($DNSService.Status -eq "Running") { "INFO" } else { "HIGH" }
-                    Compliance = "Install DnsServer PowerShell module for complete DNS analysis"
+                    Recommendation = "Install DnsServer PowerShell module for complete DNS analysis"
                 }
             }
             return $Results
@@ -79,7 +79,7 @@ function Get-DNSAnalysis {
                 Value = "Failed to load DnsServer module"
                 Details = $_.Exception.Message
                 RiskLevel = "ERROR"
-                Compliance = "Resolve DNS module loading issue"
+                Recommendation = "Resolve DNS module loading issue"
             })
         }
         
@@ -97,7 +97,7 @@ function Get-DNSAnalysis {
                     Value = "Active"
                     Details = "DNS Server is configured and accessible"
                     RiskLevel = "INFO"
-                    Compliance = ""
+                    Recommendation = ""
                 }
                 
                 # Check recursion settings
@@ -110,7 +110,7 @@ function Get-DNSAnalysis {
                     Value = $RecursionStatus
                     Details = "DNS recursion allows the server to perform lookups for clients"
                     RiskLevel = $RecursionRisk
-                    Compliance = if ($DNSServerSettings.EnableRecursion) { "Consider disabling recursion on public-facing DNS servers" } else { "" }
+                    Recommendation = if ($DNSServerSettings.EnableRecursion) { "Consider disabling recursion on public-facing DNS servers" } else { "" }
                 }
             }
         }
@@ -139,7 +139,7 @@ function Get-DNSAnalysis {
                     Value = "$($DNSZones.Count) total zones"
                     Details = "Primary: $($PrimaryZones.Count), Secondary: $($SecondaryZones.Count), Forward: $($ForwardZones.Count), Reverse: $($ReverseZones.Count)"
                     RiskLevel = "INFO"
-                    Compliance = ""
+                    Recommendation = ""
                 }
                 
                 # Analyze each zone (limited to first 10 for performance)
@@ -167,7 +167,7 @@ function Get-DNSAnalysis {
                             Value = "$($Zone.ZoneName) ($($Zone.ZoneType))"
                             Details = "Records: $RecordCount, Reverse lookup: $($Zone.IsReverseLookupZone), Dynamic updates: $($Zone.DynamicUpdate)"
                             RiskLevel = $ZoneRisk
-                            Compliance = ""
+                            Recommendation = ""
                         }
                         
                         # Store zone data for raw export
@@ -189,7 +189,7 @@ function Get-DNSAnalysis {
                                 Value = "$($Zone.ZoneName) - Nonsecure updates allowed"
                                 Details = "Zone allows both secure and nonsecure dynamic updates"
                                 RiskLevel = "MEDIUM"
-                                Compliance = "Consider restricting to secure dynamic updates only"
+                                Recommendation = "Consider restricting to secure dynamic updates only"
                             }
                         }
                     }
@@ -207,7 +207,7 @@ function Get-DNSAnalysis {
                     Value = "No zones configured"
                     Details = "DNS Server role is installed but no zones are configured"
                     RiskLevel = "MEDIUM"
-                    Compliance = "Configure DNS zones if this server should provide DNS services"
+                    Recommendation = "Configure DNS zones if this server should provide DNS services"
                 }
             }
         }
@@ -219,7 +219,7 @@ function Get-DNSAnalysis {
                 Value = "Failed"
                 Details = "Unable to retrieve DNS zone information: $($_.Exception.Message)"
                 RiskLevel = "ERROR"
-                Compliance = "Investigate DNS zone access permissions"
+                Recommendation = "Investigate DNS zone access permissions"
             }
         }
         
@@ -237,7 +237,7 @@ function Get-DNSAnalysis {
                     Value = "$($DNSForwarders.IPAddress.Count) forwarders configured"
                     Details = "Forwarders: $ForwarderList, Timeout: $ForwarderTimeout seconds"
                     RiskLevel = "INFO"
-                    Compliance = ""
+                    Recommendation = ""
                 }
                 
                 # Check for public DNS forwarders
@@ -251,7 +251,7 @@ function Get-DNSAnalysis {
                         Value = "$($PublicForwarders.Count) public forwarders detected"
                         Details = "Public DNS servers: $($PublicForwarders -join ', ')"
                         RiskLevel = "MEDIUM"
-                        Compliance = "Consider using internal or ISP DNS forwarders for better control"
+                        Recommendation = "Consider using internal or ISP DNS forwarders for better control"
                     }
                 }
             } else {
@@ -261,7 +261,7 @@ function Get-DNSAnalysis {
                     Value = "No forwarders configured"
                     Details = "DNS server is not configured to forward queries"
                     RiskLevel = "LOW"
-                    Compliance = ""
+                    Recommendation = ""
                 }
             }
         }
@@ -281,7 +281,7 @@ function Get-DNSAnalysis {
             Value = "Failed"
             Details = "Error during DNS analysis: $($_.Exception.Message)"
             RiskLevel = "ERROR"
-            Compliance = "Investigate DNS analysis failure"
+            Recommendation = "Investigate DNS analysis failure"
         })
     }
 }

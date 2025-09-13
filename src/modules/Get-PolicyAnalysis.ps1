@@ -18,7 +18,7 @@ function Get-PolicyAnalysis {
         - Windows Defender policy restrictions
         
     .OUTPUTS
-        Array of PSCustomObjects with Category, Item, Value, Details, RiskLevel, Compliance
+        Array of PSCustomObjects with Category, Item, Value, Details, RiskLevel, Recommendation
         
     .NOTES
         Requires: Write-LogMessage function
@@ -75,7 +75,7 @@ function Get-PolicyAnalysis {
                         Value = "$($AppliedGPOs.Count) GPOs Applied"
                         Details = "Traditional Active Directory Group Policy Objects"
                         RiskLevel = "LOW"
-                        Compliance = ""
+                        Recommendation = ""
                     }
                     
                     foreach ($GPO in $AppliedGPOs) {
@@ -86,7 +86,7 @@ function Get-PolicyAnalysis {
                                 Value = $GPO
                                 Details = "Active Directory Group Policy Object"
                                 RiskLevel = "INFO"
-                                Compliance = ""
+                                Recommendation = ""
                             }
                         }
                     }
@@ -98,7 +98,7 @@ function Get-PolicyAnalysis {
                         Value = "Not Applied"
                         Details = "No traditional AD Group Policy Objects (normal for Azure AD joined devices)"
                         RiskLevel = "INFO"
-                        Compliance = ""
+                        Recommendation = ""
                     }
                 }
             }
@@ -230,7 +230,7 @@ function Get-PolicyAnalysis {
                     "Not enrolled in MDM management" 
                 }
                 RiskLevel = if ($MDMEnrolled) { "LOW" } else { "MEDIUM" }
-                Compliance = if (-not $MDMEnrolled) { "Consider MDM enrollment for centralized management" } else { "" }
+                Recommendation = if (-not $MDMEnrolled) { "Consider MDM enrollment for centralized management" } else { "" }
             }
             
             # Individual policy categories with detailed settings if detected
@@ -253,7 +253,7 @@ function Get-PolicyAnalysis {
                         Value = "$($CSPInfo.Count) settings configured"
                         Details = "$($CSPInfo.Description): $SettingsPreview"
                         RiskLevel = "INFO"
-                        Compliance = ""
+                        Recommendation = ""
                     }
                 }
             }
@@ -304,7 +304,7 @@ function Get-PolicyAnalysis {
                     Value = if ($MinPasswordLength) { "$MinPasswordLength characters" } else { "Not configured" }
                     Details = "Minimum password length policy"
                     RiskLevel = if ([int]$MinPasswordLength -ge 12) { "LOW" } elseif ([int]$MinPasswordLength -ge 8) { "MEDIUM" } else { "HIGH" }
-                    Compliance = if ([int]$MinPasswordLength -lt 8) { "Minimum 8 characters required" } elseif ([int]$MinPasswordLength -lt 12) { "Consider 12+ characters for enhanced security" } else { "" }
+                    Recommendation = if ([int]$MinPasswordLength -lt 8) { "Minimum 8 characters required" } elseif ([int]$MinPasswordLength -lt 12) { "Consider 12+ characters for enhanced security" } else { "" }
                 }
                 
                 $Results += [PSCustomObject]@{
@@ -313,7 +313,7 @@ function Get-PolicyAnalysis {
                     Value = if ($PasswordComplexity -eq "1") { "Enabled" } else { "Disabled" }
                     Details = "Requires uppercase, lowercase, numbers, and symbols"
                     RiskLevel = if ($PasswordComplexity -eq "1") { "LOW" } else { "HIGH" }
-                    Compliance = if ($PasswordComplexity -ne "1") { "Enable password complexity requirements" } else { "" }
+                    Recommendation = if ($PasswordComplexity -ne "1") { "Enable password complexity requirements" } else { "" }
                 }
                 
                 $Results += [PSCustomObject]@{
@@ -322,7 +322,7 @@ function Get-PolicyAnalysis {
                     Value = if ($PasswordHistorySize) { "$PasswordHistorySize passwords remembered" } else { "Not configured" }
                     Details = "Prevents password reuse"
                     RiskLevel = if ([int]$PasswordHistorySize -ge 12) { "LOW" } elseif ([int]$PasswordHistorySize -ge 5) { "MEDIUM" } else { "HIGH" }
-                    Compliance = if ([int]$PasswordHistorySize -lt 12) { "Remember last 12 passwords minimum" } else { "" }
+                    Recommendation = if ([int]$PasswordHistorySize -lt 12) { "Remember last 12 passwords minimum" } else { "" }
                 }
                 
                 # Account Lockout Policy Results
@@ -332,7 +332,7 @@ function Get-PolicyAnalysis {
                     Value = if ($LockoutThreshold -and $LockoutThreshold -ne "0") { "$LockoutThreshold invalid attempts" } else { "No lockout policy" }
                     Details = "Failed logon attempts before lockout"
                     RiskLevel = if ($LockoutThreshold -and [int]$LockoutThreshold -le 10 -and [int]$LockoutThreshold -gt 0) { "LOW" } elseif ($LockoutThreshold -eq "0") { "HIGH" } else { "MEDIUM" }
-                    Compliance = if ($LockoutThreshold -eq "0") { "Configure account lockout policy" } else { "" }
+                    Recommendation = if ($LockoutThreshold -eq "0") { "Configure account lockout policy" } else { "" }
                 }
                 
                 if ($LockoutThreshold -and $LockoutThreshold -ne "0") {
@@ -343,7 +343,7 @@ function Get-PolicyAnalysis {
                         Value = if ($LockoutDuration -eq "-1") { "Until admin unlocks" } else { "$LockoutDurationMinutes minutes" }
                         Details = "How long accounts remain locked"
                         RiskLevel = if ($LockoutDuration -eq "-1" -or $LockoutDurationMinutes -ge 15) { "LOW" } else { "MEDIUM" }
-                        Compliance = ""
+                        Recommendation = ""
                     }
                 }
                 
@@ -384,13 +384,13 @@ function Get-PolicyAnalysis {
                     Value = "Enabled - $TimeoutMinutes minutes"
                     Details = "Secure: $IsSecure, Timeout: $TimeoutMinutes minutes"
                     RiskLevel = if ($IsSecure -and $TimeoutMinutes -le 15 -and $TimeoutMinutes -gt 0) { "LOW" } elseif ($IsSecure -and $TimeoutMinutes -le 30) { "MEDIUM" } else { "HIGH" }
-                    Compliance = if (-not $IsSecure) { "Enable secure screen saver" } elseif ($TimeoutMinutes -gt 15) { "Screen lock timeout should be 15 minutes or less" } else { "" }
+                    Recommendation = if (-not $IsSecure) { "Enable secure screen saver" } elseif ($TimeoutMinutes -gt 15) { "Screen lock timeout should be 15 minutes or less" } else { "" }
                 }
             } else {
                 # Handle case where no user context exists (SYSTEM) or screen saver is disabled
                 $PolicyStatus = if ($env:USERNAME -eq "SYSTEM") { "Cannot Check (System Context)" } else { "Disabled" }
                 $PolicyRisk = if ($env:USERNAME -eq "SYSTEM") { "MEDIUM" } else { "HIGH" }
-                $PolicyCompliance = if ($env:USERNAME -eq "SYSTEM") { "Screen lock policy should be enforced via Group Policy" } else { "Configure automatic screen lock" }
+                $PolicyRecommendation = if ($env:USERNAME -eq "SYSTEM") { "Screen lock policy should be enforced via Group Policy" } else { "Configure automatic screen lock" }
                 
                 $Results += [PSCustomObject]@{
                     Category = "Policy"
@@ -398,7 +398,7 @@ function Get-PolicyAnalysis {
                     Value = $PolicyStatus
                     Details = if ($env:USERNAME -eq "SYSTEM") { "Running as SYSTEM - user-specific settings not accessible" } else { "No automatic screen lock configured" }
                     RiskLevel = $PolicyRisk
-                    Compliance = $PolicyCompliance
+                    Recommendation = ""
                 }
             }
         }
@@ -442,7 +442,7 @@ function Get-PolicyAnalysis {
                     Value = "$EnabledAudits of $TotalAudits critical audits enabled"
                     Details = $AuditResults -join "; "
                     RiskLevel = if ($EnabledAudits -eq $TotalAudits) { "LOW" } elseif ($EnabledAudits -ge 3) { "MEDIUM" } else { "HIGH" }
-                    Compliance = if ($EnabledAudits -lt $TotalAudits) { "Enable comprehensive audit logging" } else { "" }
+                    Recommendation = if ($EnabledAudits -lt $TotalAudits) { "Enable comprehensive audit logging" } else { "" }
                 }
             }
         }
@@ -500,7 +500,7 @@ function Get-PolicyAnalysis {
                     Value = "Active"
                     Details = "Local computer security settings managed independently"
                     RiskLevel = "INFO"
-                    Compliance = ""
+                    Recommendation = ""
                 }
                 
                 if ($DangerousRights.Count -gt 0) {
@@ -510,7 +510,7 @@ function Get-PolicyAnalysis {
                         Value = "Issues Found"
                         Details = $DangerousRights -join "; "
                         RiskLevel = "MEDIUM"
-                        Compliance = "Review user rights assignments for least privilege"
+                        Recommendation = "Review user rights assignments for least privilege"
                     }
                 } else {
                     $Results += [PSCustomObject]@{
@@ -519,7 +519,7 @@ function Get-PolicyAnalysis {
                         Value = "Secure Configuration"
                         Details = "Critical rights: $($CheckedRights -join ', ')"
                         RiskLevel = "LOW"
-                        Compliance = ""
+                        Recommendation = ""
                     }
                 }
                 
@@ -543,7 +543,7 @@ function Get-PolicyAnalysis {
                     Value = "Disabled by Policy"
                     Details = "Windows Defender disabled through Group Policy"
                     RiskLevel = "HIGH"
-                    Compliance = "Ensure antivirus protection is enabled unless replaced by third-party solution"
+                    Recommendation = "Ensure antivirus protection is enabled unless replaced by third-party solution"
                 }
             } elseif ($DefenderRealTime -and $DefenderRealTime.DisableRealtimeMonitoring -eq 1) {
                 $Results += [PSCustomObject]@{
@@ -552,7 +552,7 @@ function Get-PolicyAnalysis {
                     Value = "Real-time Protection Disabled"
                     Details = "Real-time protection disabled by policy"
                     RiskLevel = "HIGH"
-                    Compliance = "Enable real-time antivirus protection"
+                    Recommendation = "Enable real-time antivirus protection"
                 }
             } else {
                 $Results += [PSCustomObject]@{
@@ -561,7 +561,7 @@ function Get-PolicyAnalysis {
                     Value = "Not Restricted"
                     Details = "No policy restrictions on Windows Defender"
                     RiskLevel = "LOW"
-                    Compliance = ""
+                    Recommendation = ""
                 }
             }
         }

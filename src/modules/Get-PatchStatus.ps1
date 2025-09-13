@@ -17,7 +17,7 @@ function Get-PatchStatus {
         - Recent hotfix installation history
         
     .OUTPUTS
-        Array of PSCustomObjects with Category, Item, Value, Details, RiskLevel, Compliance
+        Array of PSCustomObjects with Category, Item, Value, Details, RiskLevel, Recommendation
         
     .NOTES
         Requires: Write-LogMessage function, PSWindowsUpdate module (auto-installed)
@@ -107,7 +107,7 @@ function Get-PatchStatus {
                     Value = "$TotalPending total"
                     Details = $StatusDetails
                     RiskLevel = if ($CriticalInProgress.Count -gt 0) { "HIGH" } elseif ($InProgressUpdates.Count -gt 0) { "HIGH" } elseif ($AvailableUpdates.Count -gt 0) { "MEDIUM" } else { "LOW" }
-                    Compliance = if ($CriticalInProgress.Count -gt 0) { "CRITICAL: Restart required for critical updates" } elseif ($InProgressUpdates.Count -gt 0) { "Restart required to complete updates" } else { "" }
+                    Recommendation = if ($CriticalInProgress.Count -gt 0) { "CRITICAL: Restart required for critical updates" } elseif ($InProgressUpdates.Count -gt 0) { "Restart required to complete updates" } else { "" }
                 }
                 
                 # Critical updates requiring reboot
@@ -119,7 +119,7 @@ function Get-PatchStatus {
                         Value = $CriticalInProgress.Count
                         Details = $CriticalTitles
                         RiskLevel = "HIGH"
-                        Compliance = "IMMEDIATE: Restart to complete critical security updates"
+                        Recommendation = "IMMEDIATE: Restart to complete critical security updates"
                     }
                 }
                 
@@ -131,7 +131,7 @@ function Get-PatchStatus {
                         Value = "Yes"
                         Details = "System restart needed to complete $($InProgressUpdates.Count) updates"
                         RiskLevel = "HIGH"
-                        Compliance = "Restart system to complete update installation"
+                        Recommendation = "Restart system to complete update installation"
                     }
                 }
                 
@@ -143,7 +143,7 @@ function Get-PatchStatus {
                         Value = "$($AvailableUpdates.Count) updates"
                         Details = "Updates available for download and installation"
                         RiskLevel = "MEDIUM"
-                        Compliance = "Install available updates within 30 days"
+                        Recommendation = "Install available updates within 30 days"
                     }
                 }
                 
@@ -161,7 +161,7 @@ function Get-PatchStatus {
                 Value = "Module Failed"
                 Details = "PSWindowsUpdate module could not be loaded - manual verification required"
                 RiskLevel = "MEDIUM"
-                Compliance = "Manually verify patch status"
+                Recommendation = "Manually verify patch status"
             }
         }
         
@@ -178,7 +178,7 @@ function Get-PatchStatus {
                 Value = $RecentHotfixes.Count
                 Details = "Hotfixes installed in last 90 days"
                 RiskLevel = if ($RecentHotfixes.Count -eq 0) { "HIGH" } elseif ($RecentHotfixes.Count -lt 5) { "MEDIUM" } else { "LOW" }
-                Compliance = if ($RecentHotfixes.Count -eq 0) { "No recent patches detected - verify update process" } else { "" }
+                Recommendation = if ($RecentHotfixes.Count -eq 0) { "No recent patches detected - verify update process" } else { "" }
             }
         }
         catch {
@@ -189,7 +189,7 @@ function Get-PatchStatus {
                 Value = "Unknown"
                 Details = "Could not retrieve hotfix history"
                 RiskLevel = "MEDIUM"
-                Compliance = "Verify patch installation history"
+                Recommendation = "Verify patch installation history"
             }
         }
         
@@ -205,7 +205,7 @@ function Get-PatchStatus {
                 Value = "$UptimeDays days"
                 Details = "Last boot: $($LastBootTime.ToString('yyyy-MM-dd HH:mm:ss'))"
                 RiskLevel = if ($UptimeDays -gt 30) { "MEDIUM" } elseif ($UptimeDays -gt 60) { "HIGH" } else { "LOW" }
-                Compliance = if ($UptimeDays -gt 30) { "Consider regular restarts for patch application" } else { "" }
+                Recommendation = if ($UptimeDays -gt 30) { "Consider regular restarts for patch application" } else { "" }
             }
         }
         catch {
@@ -221,7 +221,7 @@ function Get-PatchStatus {
                 Value = $UpdateService.Status
                 Details = "Service startup type: $($UpdateService.StartType)"
                 RiskLevel = if ($UpdateService.Status -eq "Running") { "LOW" } elseif ($UpdateService.Status -eq "Stopped" -and $UpdateService.StartType -eq "Manual") { "LOW" } else { "HIGH" }
-                Compliance = if ($UpdateService.Status -ne "Running" -and $UpdateService.StartType -eq "Disabled") { "Windows Update service should not be permanently disabled" } else { "" }
+                Recommendation = if ($UpdateService.Status -ne "Running" -and $UpdateService.StartType -eq "Disabled") { "Windows Update service should not be permanently disabled" } else { "" }
             }
         }
         catch {
@@ -232,44 +232,129 @@ function Get-PatchStatus {
                 Value = "Unknown"
                 Details = "Could not retrieve service status"
                 RiskLevel = "MEDIUM"
-                Compliance = "Verify Windows Update service configuration"
+                Recommendation = "Verify Windows Update service configuration"
             }
         }
         
-        # Automatic Updates configuration
+        # Comprehensive Windows Update configuration detection (effective settings)
         try {
-            $AutoUpdateConfig = Get-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update" -ErrorAction SilentlyContinue
-            if ($AutoUpdateConfig) {
-                $AUOptions = switch ($AutoUpdateConfig.AUOptions) {
-                    1 { "Keep my computer up to date is disabled" }
-                    2 { "Notify before downloading" }
-                    3 { "Notify before installing" }
-                    4 { "Install automatically" }
-                    5 { "Allow users to choose setting" }
-                    default { "Unknown configuration" }
+            Write-LogMessage "INFO" "Detecting effective Windows Update configuration..." "PATCHES"
+            
+            # Check for WSUS configuration (Group Policy takes precedence)
+            $WSUSServerGP = Get-ItemProperty -Path "HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate" -Name "WUServer" -ErrorAction SilentlyContinue
+            $UseWSUSGP = Get-ItemProperty -Path "HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU" -Name "UseWUServer" -ErrorAction SilentlyContinue
+            $NoInternetGP = Get-ItemProperty -Path "HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate" -Name "DoNotConnectToWindowsUpdateInternetLocations" -ErrorAction SilentlyContinue
+            $AUOptionsGP = Get-ItemProperty -Path "HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU" -Name "AUOptions" -ErrorAction SilentlyContinue
+            $NoAutoUpdateGP = Get-ItemProperty -Path "HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU" -Name "NoAutoUpdate" -ErrorAction SilentlyContinue
+            
+            # Check for SCCM/ConfigMgr client
+            $SCCMClient = Get-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\SMS\Mobile Client" -ErrorAction SilentlyContinue
+            $SCCMVersion = if ($SCCMClient -and $SCCMClient.SmsClientVersion) { $SCCMClient.SmsClientVersion } else { $null }
+            
+            # Check for Windows Update for Business (WUfB/Intune)
+            $WUfBPolicy = Get-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\PolicyManager\Current\Device\Update" -ErrorAction SilentlyContinue
+            
+            # Determine effective configuration (in order of precedence)
+            $UpdateConfig = ""
+            $UpdateDetails = ""
+            $RiskLevel = "INFO"
+            $Recommendation = ""
+            
+            # 1. SCCM/ConfigMgr (highest precedence for enterprise)
+            if ($SCCMClient) {
+                $UpdateConfig = "SCCM/ConfigMgr Managed"
+                $UpdateDetails = "ConfigMgr client detected"
+                if ($SCCMVersion) { $UpdateDetails += " (version: $SCCMVersion)" }
+                $RiskLevel = "LOW"
+                Write-LogMessage "SUCCESS" "SCCM ConfigMgr client detected: $SCCMVersion" "PATCHES"
+            }
+            
+            # 2. WSUS Configuration (Group Policy managed)
+            elseif ($WSUSServerGP -and $WSUSServerGP.WUServer -and $UseWSUSGP -and $UseWSUSGP.UseWUServer -eq 1) {
+                $UpdateConfig = "WSUS Server"
+                $UpdateDetails = "WSUS Server: $($WSUSServerGP.WUServer)"
+                if ($NoInternetGP -and $NoInternetGP.DoNotConnectToWindowsUpdateInternetLocations -eq 1) {
+                    $UpdateDetails += " (Internet blocked)"
                 }
-                
-                $Results += [PSCustomObject]@{
-                    Category = "Patches"
-                    Item = "Automatic Updates"
-                    Value = $AUOptions
-                    Details = "Registry AUOptions: $($AutoUpdateConfig.AUOptions)"
-                    RiskLevel = if ($AutoUpdateConfig.AUOptions -in @(3,4)) { "LOW" } elseif ($AutoUpdateConfig.AUOptions -eq 2) { "MEDIUM" } else { "HIGH" }
-                    Compliance = if ($AutoUpdateConfig.AUOptions -eq 1) { "Automatic updates should be enabled" } else { "" }
+                $RiskLevel = "LOW"
+                Write-LogMessage "SUCCESS" "WSUS configuration detected: $($WSUSServerGP.WUServer)" "PATCHES"
+            }
+            
+            # 3. Windows Update for Business (WUfB/Intune)
+            elseif ($WUfBPolicy) {
+                $UpdateConfig = "Windows Update for Business"
+                $UpdateDetails = "Managed by Intune/WUfB policies"
+                $RiskLevel = "LOW"
+                Write-LogMessage "SUCCESS" "Windows Update for Business detected" "PATCHES"
+            }
+            
+            # 4. Group Policy Automatic Updates (without WSUS)
+            elseif ($AUOptionsGP -or $NoAutoUpdateGP) {
+                if ($NoAutoUpdateGP -and $NoAutoUpdateGP.NoAutoUpdate -eq 1) {
+                    $UpdateConfig = "Automatic Updates Disabled"
+                    $UpdateDetails = "Disabled by Group Policy (NoAutoUpdate=1)"
+                    $RiskLevel = "HIGH"
+                    $Recommendation = "Automatic updates should be enabled or managed by WSUS/SCCM"
+                } elseif ($AUOptionsGP -and $AUOptionsGP.AUOptions) {
+                    $AUValue = $AUOptionsGP.AUOptions
+                    $UpdateConfig = switch ($AUValue) {
+                        2 { "Notify before downloading" }
+                        3 { "Download but notify before installing" }
+                        4 { "Install automatically" }
+                        5 { "Allow users to choose setting" }
+                        default { "Custom configuration (AUOptions: $AUValue)" }
+                    }
+                    $UpdateDetails = "Group Policy managed (AUOptions: $AUValue)"
+                    $RiskLevel = if ($AUValue -in @(3,4)) { "LOW" } elseif ($AUValue -eq 2) { "MEDIUM" } else { "HIGH" }
                 }
-            } else {
-                $Results += [PSCustomObject]@{
-                    Category = "Patches"
-                    Item = "Automatic Updates"
-                    Value = "Default/Managed"
-                    Details = "Using default Windows Update settings or managed by policy"
-                    RiskLevel = "LOW"
-                    Compliance = ""
+                Write-LogMessage "SUCCESS" "Group Policy automatic updates: AUOptions=$($AUOptionsGP.AUOptions)" "PATCHES"
+            }
+            
+            # 5. Local Registry Configuration
+            else {
+                $LocalAUConfig = Get-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update" -ErrorAction SilentlyContinue
+                if ($LocalAUConfig -and $LocalAUConfig.AUOptions) {
+                    $AUValue = $LocalAUConfig.AUOptions
+                    $UpdateConfig = switch ($AUValue) {
+                        1 { "Automatic updates disabled" }
+                        2 { "Notify before downloading" }
+                        3 { "Download but notify before installing" }
+                        4 { "Install automatically" }
+                        5 { "Allow users to choose setting" }
+                        default { "Custom configuration (AUOptions: $AUValue)" }
+                    }
+                    $UpdateDetails = "Local registry setting (AUOptions: $AUValue)"
+                    $RiskLevel = if ($AUValue -in @(3,4)) { "LOW" } elseif ($AUValue -eq 2) { "MEDIUM" } else { "HIGH" }
+                    Write-LogMessage "SUCCESS" "Local automatic updates: AUOptions=$AUValue" "PATCHES"
+                } else {
+                    # No explicit configuration found - Windows default behavior
+                    $UpdateConfig = "Windows Default Behavior"
+                    $UpdateDetails = "No explicit update configuration detected - using Windows default automatic update behavior"
+                    $RiskLevel = "MEDIUM"
+                    $Recommendation = "Consider implementing managed Windows Update strategy (WSUS, SCCM, or WUfB)"
+                    Write-LogMessage "WARN" "No Windows Update configuration detected" "PATCHES"
                 }
+            }
+            
+            $Results += [PSCustomObject]@{
+                Category = "Patches"
+                Item = "Windows Update Configuration"
+                Value = $UpdateConfig
+                Details = $UpdateDetails
+                RiskLevel = $RiskLevel
+                Recommendation = ""
             }
         }
         catch {
-            Write-LogMessage "WARN" "Could not check automatic update configuration: $($_.Exception.Message)" "PATCHES"
+            Write-LogMessage "ERROR" "Failed to detect Windows Update configuration: $($_.Exception.Message)" "PATCHES"
+            $Results += [PSCustomObject]@{
+                Category = "Patches"
+                Item = "Windows Update Configuration"
+                Value = "Detection Failed"
+                Details = "Error detecting update configuration: $($_.Exception.Message)"
+                RiskLevel = "ERROR"
+                Recommendation = "Investigate Windows Update configuration detection issue"
+            }
         }
         
         Write-LogMessage "SUCCESS" "Patch status analysis completed" "PATCHES"

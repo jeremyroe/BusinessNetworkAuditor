@@ -54,14 +54,14 @@ function Export-RawDataJSON {
                 medium_risk_count = ($Results | Where-Object { $_.RiskLevel -eq "MEDIUM" }).Count
                 low_risk_count = ($Results | Where-Object { $_.RiskLevel -eq "LOW" }).Count
                 info_count = ($Results | Where-Object { $_.RiskLevel -eq "INFO" }).Count
-                compliance_findings = ($Results | Where-Object { $_.Compliance -and $_.Compliance.Trim() -ne "" }).Count
+                recommendation_findings = ($Results | Where-Object { $_.Recommendation -and $_.Recommendation.Trim() -ne "" }).Count
             }
             
             categories = [ordered]@{}
             
             raw_collections = [ordered]@{}
             
-            compliance_framework = [ordered]@{
+            recommendation_framework = [ordered]@{
                 primary = "NIST"
                 findings = @()
             }
@@ -93,24 +93,24 @@ function Export-RawDataJSON {
                     value = $Item.Value
                     details = $Item.Details
                     risk_level = $Item.RiskLevel
-                    compliance_note = $Item.Compliance
+                    recommendation_note = $Item.Recommendation
                     category = $Item.Category
                     timestamp = (Get-Date).ToString("yyyy-MM-ddTHH:mm:ss.fffZ")
                 }
                 
                 $AuditData.categories[$CategoryName].findings += $Finding
                 
-                # Add to compliance findings if applicable
-                if ($Item.Compliance -and $Item.Compliance.Trim() -ne "") {
-                    $ComplianceFinding = [ordered]@{
+                # Add to recommendation findings if applicable
+                if ($Item.Recommendation -and $Item.Recommendation.Trim() -ne "") {
+                    $RecommendationFinding = [ordered]@{
                         finding_id = $Finding.id
                         framework = "NIST"
-                        requirement = $Item.Compliance
+                        recommendation = $Item.Recommendation
                         category = $CategoryName
                         item = $Item.Item
                         risk_level = $Item.RiskLevel
                     }
-                    $AuditData.compliance_framework.findings += $ComplianceFinding
+                    $AuditData.recommendation_framework.findings += $RecommendationFinding
                 }
             }
         }

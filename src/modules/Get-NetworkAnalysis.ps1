@@ -12,7 +12,7 @@ function Get-NetworkAnalysis {
         network shares, and network security settings.
         
     .OUTPUTS
-        Array of PSCustomObjects with Category, Item, Value, Details, RiskLevel, Compliance
+        Array of PSCustomObjects with Category, Item, Value, Details, RiskLevel, Recommendation
         
     .NOTES
         Requires: Write-LogMessage function
@@ -36,7 +36,7 @@ function Get-NetworkAnalysis {
                 Value = "$($ActiveAdapters.Count) active, $($DisconnectedAdapters.Count) disconnected"
                 Details = "Total adapters: $($NetworkAdapters.Count)"
                 RiskLevel = "INFO"
-                Compliance = ""
+                Recommendation = ""
             }
             
             foreach ($Adapter in $ActiveAdapters) {
@@ -51,7 +51,7 @@ function Get-NetworkAnalysis {
                     Value = "Connected"
                     Details = "$ConnectionName ($AdapterName), Speed: $Speed, MAC: $MACAddress"
                     RiskLevel = "INFO"
-                    Compliance = ""
+                    Recommendation = ""
                 }
                 
                 Write-LogMessage "INFO" "Active adapter: $ConnectionName - $Speed" "NETWORK"
@@ -99,7 +99,7 @@ function Get-NetworkAnalysis {
                             "LOW"
                         }
                         
-                        $IPCompliance = if (-not $DHCPEnabled -and $IPType -eq "IPv4") {
+                        $IPRecommendation = if (-not $DHCPEnabled -and $IPType -eq "IPv4") {
                             "Static IP configuration should be documented and managed"
                         } else { "" }
                         
@@ -111,7 +111,7 @@ function Get-NetworkAnalysis {
                             Value = "$IPAddress ($ConfigType)"
                             Details = "$Description, Subnet: $SubnetMask, $GatewayInfo"
                             RiskLevel = $IPRisk
-                            Compliance = $IPCompliance
+                            Recommendation = ""
                         }
                         
                         Write-LogMessage "INFO" "IP Config: $IPAddress ($ConfigType) on $Description" "NETWORK"
@@ -122,7 +122,7 @@ function Get-NetworkAnalysis {
                 if ($DNSServers) {
                     $DNSList = $DNSServers -join ", "
                     $DNSRisk = "LOW"
-                    $DNSCompliance = ""
+                    $DNSRecommendation = ""
                     
                     # Check for potentially insecure DNS servers
                     $PublicDNS = @("8.8.8.8", "8.8.4.4", "1.1.1.1", "1.0.0.1", "208.67.222.222", "208.67.220.220")
@@ -130,7 +130,7 @@ function Get-NetworkAnalysis {
                     
                     if ($HasPublicDNS) {
                         $DNSRisk = "MEDIUM"
-                        $DNSCompliance = "Consider using internal DNS servers for better security control"
+                        $DNSRecommendation = "Consider using internal DNS servers for better security control"
                     }
                     
                     $Results += [PSCustomObject]@{
@@ -139,7 +139,7 @@ function Get-NetworkAnalysis {
                         Value = $DNSServers.Count.ToString() + " servers configured"
                         Details = "DNS Servers: $DNSList"
                         RiskLevel = $DNSRisk
-                        Compliance = $DNSCompliance
+                        Recommendation = ""
                     }
                     
                     Write-LogMessage "INFO" "DNS servers: $DNSList" "NETWORK"
@@ -166,7 +166,7 @@ function Get-NetworkAnalysis {
                        elseif ($TCPPortCount -gt 50) { "MEDIUM" } 
                        else { "LOW" }
             
-            $PortCompliance = if ($OpenRiskyPorts.Count -gt 0) {
+            $PortRecommendation = if ($OpenRiskyPorts.Count -gt 0) {
                 "Review open ports for security risks - found potentially risky ports"
             } elseif ($TCPPortCount -gt 50) {
                 "Large number of open ports may increase attack surface"
@@ -178,7 +178,7 @@ function Get-NetworkAnalysis {
                 Value = "$TCPPortCount TCP, $UDPPortCount UDP"
                 Details = "Risky TCP ports open: $($OpenRiskyPorts.Count)"
                 RiskLevel = $PortRisk
-                Compliance = $PortCompliance
+                Recommendation = ""
             }
             
             # Detail risky ports if found - header + detail format
@@ -191,7 +191,7 @@ function Get-NetworkAnalysis {
                     Value = "$($UniqueRiskyPorts.Count) high-risk ports detected"
                     Details = "Network services that may present security risks"
                     RiskLevel = "HIGH"
-                    Compliance = "Secure or disable unnecessary network services"
+                    Recommendation = "Secure or disable unnecessary network services"
                 }
                 
                 # Individual detail entries without compliance duplication
@@ -224,7 +224,7 @@ function Get-NetworkAnalysis {
                         Value = "$ServiceName"
                         Details = "Process: $ProcessName (PID: $ProcessId)"
                         RiskLevel = "INFO"
-                        Compliance = ""
+                        Recommendation = ""
                     }
                     
                     Write-LogMessage "WARN" "Risky port open: $PortNumber ($ServiceName) - Process: $ProcessName" "NETWORK"
@@ -281,7 +281,7 @@ function Get-NetworkAnalysis {
                     Value = $RDPStatus
                     Details = "RDP is accessible$PortText. This provides remote access to the system and should be secured with strong authentication, network restrictions, and monitoring."
                     RiskLevel = "HIGH"
-                    Compliance = "Secure remote access - use VPN, strong auth, restrict source IPs, enable logging"
+                    Recommendation = "Secure remote access - use VPN, strong auth, restrict source IPs, enable logging"
                 }
                 
                 Write-LogMessage "WARN" "RDP detected: $RDPStatus on port $RDPPort" "NETWORK"
@@ -292,7 +292,7 @@ function Get-NetworkAnalysis {
                     Value = "Disabled"
                     Details = "RDP is properly disabled"
                     RiskLevel = "LOW"
-                    Compliance = ""
+                    Recommendation = ""
                 }
                 
                 Write-LogMessage "INFO" "RDP is disabled - good security posture" "NETWORK"
@@ -312,7 +312,7 @@ function Get-NetworkAnalysis {
                         elseif ($AdminShares.Count -gt 3) { "MEDIUM" } 
                         else { "LOW" }
             
-            $ShareCompliance = if ($UserShares.Count -gt 0) {
+            $ShareRecommendation = if ($UserShares.Count -gt 0) {
                 "Review network share permissions and access controls"
             } else { "" }
             
@@ -322,7 +322,7 @@ function Get-NetworkAnalysis {
                 Value = "$($NetworkShares.Count) total shares"
                 Details = "User shares: $($UserShares.Count), Admin shares: $($AdminShares.Count)"
                 RiskLevel = $ShareRisk
-                Compliance = $ShareCompliance
+                Recommendation = ""
             }
             
             foreach ($Share in $UserShares) {
@@ -336,7 +336,7 @@ function Get-NetworkAnalysis {
                     Value = $ShareName
                     Details = "Path: $SharePath, Description: $ShareDescription"
                     RiskLevel = "MEDIUM"
-                    Compliance = "Ensure proper access controls and monitoring for network shares"
+                    Recommendation = "Ensure proper access controls and monitoring for network shares"
                 }
                 
                 Write-LogMessage "INFO" "Network share: $ShareName -> $SharePath" "NETWORK"
@@ -358,7 +358,7 @@ function Get-NetworkAnalysis {
             $FileSharingEnabled = $FileSharing.Count -gt 0
             
             $DiscoveryRisk = if ($DiscoveryEnabled) { "MEDIUM" } else { "LOW" }
-            $DiscoveryCompliance = if ($DiscoveryEnabled) {
+            $DiscoveryRecommendation = if ($DiscoveryEnabled) {
                 "Network discovery should be disabled on untrusted networks"
             } else { "" }
             
@@ -368,11 +368,11 @@ function Get-NetworkAnalysis {
                 Value = if ($DiscoveryEnabled) { "Enabled" } else { "Disabled" }
                 Details = "Network discovery firewall rules: $($NetworkDiscovery.Count) enabled"
                 RiskLevel = $DiscoveryRisk
-                Compliance = $DiscoveryCompliance
+                Recommendation = ""
             }
             
             $SharingRisk = if ($FileSharingEnabled) { "MEDIUM" } else { "LOW" }
-            $SharingCompliance = if ($FileSharingEnabled) {
+            $SharingRecommendation = if ($FileSharingEnabled) {
                 "File sharing should be carefully controlled and monitored"
             } else { "" }
             
@@ -382,7 +382,7 @@ function Get-NetworkAnalysis {
                 Value = if ($FileSharingEnabled) { "Enabled" } else { "Disabled" }
                 Details = "File sharing firewall rules: $($FileSharing.Count) enabled"
                 RiskLevel = $SharingRisk
-                Compliance = $SharingCompliance
+                Recommendation = ""
             }
             
             Write-LogMessage "INFO" "Network Discovery: $(if ($DiscoveryEnabled) {'Enabled'} else {'Disabled'}), File Sharing: $(if ($FileSharingEnabled) {'Enabled'} else {'Disabled'})" "NETWORK"
@@ -403,7 +403,7 @@ function Get-NetworkAnalysis {
                     Value = "$ProfileCount saved profiles"
                     Details = "Saved wireless network configurations"
                     RiskLevel = "MEDIUM"
-                    Compliance = "Review wireless network profiles and remove unused ones"
+                    Recommendation = "Review wireless network profiles and remove unused ones"
                 }
                 
                 Write-LogMessage "INFO" "Wireless profiles: $ProfileCount saved" "NETWORK"

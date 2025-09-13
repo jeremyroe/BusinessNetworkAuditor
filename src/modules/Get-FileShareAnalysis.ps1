@@ -14,7 +14,7 @@ function Get-FileShareAnalysis {
         - Share usage patterns and security risks
         
     .OUTPUTS
-        Array of PSCustomObjects with Category, Item, Value, Details, RiskLevel, Compliance
+        Array of PSCustomObjects with Category, Item, Value, Details, RiskLevel, Recommendation
         
     .NOTES
         Version: 1.3.0
@@ -64,7 +64,7 @@ function Get-FileShareAnalysis {
                     Value = "$($SMBShares.Count) total shares"
                     Details = "User shares: $($UserShares.Count), Admin shares: $($AdminShares.Count), Special: $($SpecialShares.Count)"
                     RiskLevel = "INFO"
-                    Compliance = ""
+                    Recommendation = ""
                 }
                 
                 # Analyze each user share
@@ -78,6 +78,7 @@ function Get-FileShareAnalysis {
                         
                         # Determine share risk level based on name and characteristics
                         $ShareRisk = switch -Regex ($Share.Name) {
+                            "^(NETLOGON|SYSVOL)$" { "LOW" }  # Domain Controller administrative shares
                             "^(Users?|Home|Profiles?)$" { "LOW" }
                             "^(Public|Everyone|Guest|Temp)$" { "HIGH" }
                             "^(Data|Shared?|Common)$" { "MEDIUM" }
@@ -107,7 +108,7 @@ function Get-FileShareAnalysis {
                             Value = "$($Share.Name) ($SharePath)"
                             Details = "Description: $ShareDescription, Anonymous access: $AnonymousAccess"
                             RiskLevel = $ShareRisk
-                            Compliance = if ($ShareRisk -eq "HIGH") { "Review share permissions and restrict access" } else { "" }
+                            Recommendation = if ($ShareRisk -eq "HIGH") { "Review share permissions and restrict access" } else { "" }
                         }
                         
                         # Get detailed share access permissions (read-only)
@@ -120,20 +121,46 @@ function Get-FileShareAnalysis {
                                     $AccessSummary += "$($Access.AccountName):$($Access.AccessRight)"
                                 }
                                 
-                                # Check for risky permissions
-                                $RiskyAccounts = $ShareAccessList | Where-Object { 
-                                    $_.AccountName -in @("Everyone", "Guest", "Anonymous Logon", "Users") -and 
-                                    $_.AccessRight -in @("Full", "Change")
-                                }
+                                # Check for risky permissions (exclude Domain Controller administrative shares)
+                                $IsDomainControllerShare = $Share.Name -in @("NETLOGON", "SYSVOL")
                                 
-                                if ($RiskyAccounts) {
-                                    $Results += [PSCustomObject]@{
-                                        Category = "File Shares"
-                                        Item = "Share Permission Risk"
-                                        Value = "$($Share.Name) - Excessive permissions"
-                                        Details = "Risky permissions found: $($RiskyAccounts.AccountName -join ', ') with $($RiskyAccounts.AccessRight -join ', ') access"
-                                        RiskLevel = "HIGH"
-                                        Compliance = "Restrict share permissions to specific users or groups"
+                                if (-not $IsDomainControllerShare) {
+                                    $RiskyAccounts = $ShareAccessList | Where-Object { 
+                                        $_.AccountName -in @("Everyone", "Guest", "Anonymous Logon", "Users") -and 
+                                        $_.AccessRight -in @("Full", "Change")
+                                    }
+                                    
+                                    if ($RiskyAccounts) {
+                                        $Results += [PSCustomObject]@{
+                                            Category = "File Shares"
+                                            Item = "Share Permission Risk"
+                                            Value = "$($Share.Name) - Excessive permissions"
+                                            Details = "Risky permissions found: $($RiskyAccounts.AccountName -join ', ') with $($RiskyAccounts.AccessRight -join ', ') access"
+                                            RiskLevel = "HIGH"
+                                            Recommendation = "Restrict share permissions to specific users or groups"
+                                        }
+                                    }
+                                } else {
+                                    # Domain Controller shares - validate they have proper Everyone access
+                                    $EveryoneAccess = $ShareAccessList | Where-Object { $_.AccountName -eq "Everyone" }
+                                    if ($EveryoneAccess) {
+                                        $Results += [PSCustomObject]@{
+                                            Category = "File Shares"
+                                            Item = "DC Share Configuration"
+                                            Value = "$($Share.Name) - Everyone access configured"
+                                            Details = "Domain Controller share with required Everyone access for domain functionality"
+                                            RiskLevel = "LOW"
+                                            Recommendation = ""
+                                        }
+                                    } else {
+                                        $Results += [PSCustomObject]@{
+                                            Category = "File Shares"
+                                            Item = "DC Share Configuration"
+                                            Value = "$($Share.Name) - Missing Everyone access"
+                                            Details = "Domain Controller share may be missing required Everyone access for proper domain functionality"
+                                            RiskLevel = "HIGH"
+                                            Recommendation = "Verify NETLOGON/SYSVOL shares have appropriate Everyone read access"
+                                        }
                                     }
                                 }
                             }
@@ -169,7 +196,7 @@ function Get-FileShareAnalysis {
                         Value = "$($AdminShare.Name) ($($AdminShare.Path))"
                         Details = "Default administrative share for remote management"
                         RiskLevel = "LOW"
-                        Compliance = ""
+                        Recommendation = ""
                     }
                 }
                 
@@ -185,7 +212,7 @@ function Get-FileShareAnalysis {
                     Value = "No shares found"
                     Details = "No SMB/CIFS shares are currently configured"
                     RiskLevel = "INFO"
-                    Compliance = ""
+                    Recommendation = ""
                 }
             }
         }
@@ -197,7 +224,7 @@ function Get-FileShareAnalysis {
                 Value = "Failed"
                 Details = "Unable to retrieve SMB share information: $($_.Exception.Message)"
                 RiskLevel = "ERROR"
-                Compliance = "Investigate file sharing service status"
+                Recommendation = "Investigate file sharing service status"
             }
         }
         
@@ -224,7 +251,7 @@ function Get-FileShareAnalysis {
                     Value = $SMBVersionString
                     Details = "SMB signing required: $($SMBServerConfig.RequireSecuritySignature), Encryption supported: $($SMBServerConfig.EncryptData)"
                     RiskLevel = $SMBRisk
-                    Compliance = if ($SMBServerConfig.EnableSMB1Protocol) { "Disable SMBv1 protocol - significant security vulnerability" } else { "SMB configuration is secure" }
+                    Recommendation = if ($SMBServerConfig.EnableSMB1Protocol) { "Disable SMBv1 protocol - significant security vulnerability" } else { "SMB configuration is secure" }
                 }
                 
                 # Check SMB signing
@@ -235,7 +262,7 @@ function Get-FileShareAnalysis {
                         Value = "Not Required"
                         Details = "SMB signing helps prevent man-in-the-middle attacks"
                         RiskLevel = "MEDIUM"
-                        Compliance = "Consider enabling SMB security signing"
+                        Recommendation = "Consider enabling SMB security signing"
                     }
                 }
             }
@@ -255,7 +282,7 @@ function Get-FileShareAnalysis {
                     Value = "$($LanmanServer.Status) ($($LanmanServer.StartType))"
                     Details = "Server service (LanmanServer) enables file and print sharing"
                     RiskLevel = if ($LanmanServer.Status -eq "Running") { "INFO" } else { "MEDIUM" }
-                    Compliance = ""
+                    Recommendation = ""
                 }
             }
         }
@@ -275,7 +302,7 @@ function Get-FileShareAnalysis {
             Value = "Failed"
             Details = "Error during file share analysis: $($_.Exception.Message)"
             RiskLevel = "ERROR"
-            Compliance = "Investigate file share analysis failure"
+            Recommendation = "Investigate file share analysis failure"
         })
     }
 }

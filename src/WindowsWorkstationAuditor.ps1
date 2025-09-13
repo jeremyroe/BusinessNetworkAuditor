@@ -343,8 +343,8 @@ function Start-ModularAudit {
             $OutputLine = "$($Result.Category) - $($Result.Item): $($Result.Value)"
             Write-Host $OutputLine -ForegroundColor $ColorCode
             
-            if ($Result.Compliance) {
-                Write-Host "  COMPLIANCE: $($Result.Compliance)" -ForegroundColor Cyan
+            if ($Result.Recommendation) {
+                Write-Host "  RECOMMENDATION: $($Result.Recommendation)" -ForegroundColor Cyan
             }
         }
         
@@ -387,7 +387,7 @@ try {
         Write-Host "Windows Servers have different:" -ForegroundColor Yellow
         Write-Host "  - Security models and default configurations" -ForegroundColor Yellow
         Write-Host "  - Service requirements and roles" -ForegroundColor Yellow
-        Write-Host "  - Compliance frameworks and baselines" -ForegroundColor Yellow
+        Write-Host "  - Best practice recommendations and baselines" -ForegroundColor Yellow
         Write-Host "  - Network security considerations" -ForegroundColor Yellow
         Write-Host ""
         Write-Host "Please use WindowsServerAuditor.ps1 for server environments." -ForegroundColor Yellow

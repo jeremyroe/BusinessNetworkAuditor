@@ -14,7 +14,7 @@ function Get-ServerRoleAnalysis {
         - Common server role security recommendations
         
     .OUTPUTS
-        Array of PSCustomObjects with Category, Item, Value, Details, RiskLevel, Compliance
+        Array of PSCustomObjects with Category, Item, Value, Details, RiskLevel, Recommendation
         
     .NOTES
         Requires: Write-LogMessage function, Add-RawDataCollection function
@@ -38,7 +38,7 @@ function Get-ServerRoleAnalysis {
                 Value = "Limited - ServerManager module unavailable"
                 Details = "Cannot perform comprehensive role analysis. Using service-based detection."
                 RiskLevel = "WARN"
-                Compliance = "Install ServerManager PowerShell module for complete analysis"
+                Recommendation = "Install ServerManager PowerShell module for complete analysis"
             }
             
             return $Results
@@ -106,7 +106,7 @@ function Get-ServerRoleAnalysis {
             Value = $ServerRoles.Count
             Details = "Windows Server roles currently installed and active"
             RiskLevel = "INFO"
-            Compliance = ""
+            Recommendation = ""
         }
         
         $Results += [PSCustomObject]@{
@@ -115,7 +115,7 @@ function Get-ServerRoleAnalysis {
             Value = $ServerFeatures.Count
             Details = "Windows Server features currently installed"
             RiskLevel = "INFO"
-            Compliance = ""
+            Recommendation = ""
         }
         
         # Analyze specific critical roles
@@ -124,73 +124,73 @@ function Get-ServerRoleAnalysis {
                 Name = "Active Directory Domain Services"
                 Risk = "HIGH"
                 Description = "Domain Controller - Critical infrastructure component"
-                Compliance = "Ensure proper backup, monitoring, and security hardening"
+                Recommendation = "Ensure proper backup, monitoring, and security hardening"
             }
             "DHCP" = @{
                 Name = "DHCP Server"
                 Risk = "MEDIUM"
                 Description = "Network DHCP service"
-                Compliance = "Monitor scope utilization and secure DHCP settings"
+                Recommendation = "Monitor scope utilization and secure DHCP settings"
             }
             "DNS" = @{
                 Name = "DNS Server"
                 Risk = "MEDIUM"
                 Description = "Domain Name System service"
-                Compliance = "Secure DNS configuration and monitor for unauthorized changes"
+                Recommendation = "Secure DNS configuration and monitor for unauthorized changes"
             }
             "Web-Server" = @{
                 Name = "Internet Information Services (IIS)"
                 Risk = "MEDIUM"
                 Description = "Web server role"
-                Compliance = "Regular security updates and secure configuration required"
+                Recommendation = "Regular security updates and secure configuration required"
             }
             "File-Services" = @{
                 Name = "File and Storage Services"
                 Risk = "MEDIUM"
                 Description = "File server capabilities"
-                Compliance = "Monitor file share permissions and access logs"
+                Recommendation = "Monitor file share permissions and access logs"
             }
             "Print-Services" = @{
                 Name = "Print and Document Services"
                 Risk = "LOW"
                 Description = "Print server capabilities"
-                Compliance = "Review print server security and driver updates"
+                Recommendation = "Review print server security and driver updates"
             }
             "Remote-Desktop-Services" = @{
                 Name = "Remote Desktop Services"
                 Risk = "HIGH"
                 Description = "Terminal services and remote access"
-                Compliance = "Secure RDS configuration and monitor remote access"
+                Recommendation = "Secure RDS configuration and monitor remote access"
             }
             "Hyper-V" = @{
                 Name = "Hyper-V"
                 Risk = "HIGH"
                 Description = "Virtualization platform"
-                Compliance = "Secure hypervisor and monitor VM security"
+                Recommendation = "Secure hypervisor and monitor VM security"
             }
             "ADCS-Cert-Authority" = @{
                 Name = "Active Directory Certificate Services"
                 Risk = "HIGH"
                 Description = "Certificate Authority services"
-                Compliance = "Secure CA configuration and certificate management"
+                Recommendation = "Secure CA configuration and certificate management"
             }
             "ADFS-Federation" = @{
                 Name = "Active Directory Federation Services"
                 Risk = "HIGH"
                 Description = "Identity federation services"
-                Compliance = "Secure ADFS configuration and monitor authentication"
+                Recommendation = "Secure ADFS configuration and monitor authentication"
             }
             "WDS" = @{
                 Name = "Windows Deployment Services"
                 Risk = "MEDIUM"
                 Description = "Network-based OS deployment"
-                Compliance = "Secure WDS configuration and image management"
+                Recommendation = "Secure WDS configuration and image management"
             }
             "WSUS" = @{
                 Name = "Windows Server Update Services"
                 Risk = "MEDIUM"
                 Description = "Windows update distribution"
-                Compliance = "Monitor update approval and distribution"
+                Recommendation = "Monitor update approval and distribution"
             }
         }
         
@@ -214,7 +214,7 @@ function Get-ServerRoleAnalysis {
                     Value = $RoleInfo.Name
                     Details = "$($RoleInfo.Description). $ServiceDetails"
                     RiskLevel = $RoleInfo.Risk
-                    Compliance = $RoleInfo.Compliance
+                    Recommendation = $RoleInfo.Recommendation
                 }
             }
         }
@@ -242,7 +242,7 @@ function Get-ServerRoleAnalysis {
                 Value = $RiskyConfig
                 Details = "Review server role separation and security implications"
                 RiskLevel = "HIGH"
-                Compliance = "Consider role separation for security and performance"
+                Recommendation = "Consider role separation for security and performance"
             }
         }
         
@@ -255,7 +255,7 @@ function Get-ServerRoleAnalysis {
                 Value = "See Details"
                 Details = "Installed roles: $RoleList"
                 RiskLevel = "INFO"
-                Compliance = ""
+                Recommendation = ""
             }
         }
         
@@ -277,7 +277,7 @@ function Get-ServerRoleAnalysis {
                     Value = $Feature.DisplayName
                     Details = $SecurityRelevantFeatures[$FeatureName]
                     RiskLevel = "MEDIUM"
-                    Compliance = "Review necessity and consider removal if unused"
+                    Recommendation = "Review necessity and consider removal if unused"
                 }
             }
         }
@@ -294,7 +294,7 @@ function Get-ServerRoleAnalysis {
             Value = "Failed"
             Details = "Error during server role analysis: $($_.Exception.Message)"
             RiskLevel = "ERROR"
-            Compliance = "Investigate server role analysis failure"
+            Recommendation = "Investigate server role analysis failure"
         })
     }
 }

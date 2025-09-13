@@ -11,7 +11,7 @@ function Get-MemoryAnalysis {
         configuration, page file settings, and memory performance analysis.
         
     .OUTPUTS
-        Array of PSCustomObjects with Category, Item, Value, Details, RiskLevel, Compliance
+        Array of PSCustomObjects with Category, Item, Value, Details, RiskLevel, Recommendation
         
     .NOTES
         Requires: Write-LogMessage function
@@ -37,7 +37,7 @@ function Get-MemoryAnalysis {
                           elseif ($MemoryUsagePercent -gt 75) { "MEDIUM" }
                           else { "LOW" }
         
-        $MemoryCompliance = if ($MemoryUsagePercent -gt 80) {
+        $MemoryRecommendation = if ($MemoryUsagePercent -gt 80) {
             "High memory usage may impact system performance"
         } else { "" }
         
@@ -47,7 +47,7 @@ function Get-MemoryAnalysis {
             Value = "$MemoryUsagePercent% used"
             Details = "Total: $TotalMemoryGB GB, Used: $UsedMemoryGB GB, Free: $FreeMemoryGB GB"
             RiskLevel = $MemoryRiskLevel
-            Compliance = $MemoryCompliance
+            Recommendation = ""
         }
         
         Write-LogMessage "INFO" "Physical Memory: $MemoryUsagePercent% used ($UsedMemoryGB GB / $TotalMemoryGB GB)" "MEMORY"
@@ -73,7 +73,7 @@ function Get-MemoryAnalysis {
                         Value = "$PageFileUsagePercent% used"
                         Details = "Page File: $($PageFile.Name), Size: $PageFileSizeGB GB, Used: $PageFileUsedGB GB"
                         RiskLevel = $PageFileRisk
-                        Compliance = if ($PageFileUsagePercent -gt 70) { "Monitor virtual memory usage" } else { "" }
+                        Recommendation = if ($PageFileUsagePercent -gt 70) { "Monitor virtual memory usage" } else { "" }
                     }
                     
                     Write-LogMessage "INFO" "Page File $($PageFile.Name): $PageFileUsagePercent% used ($PageFileUsedGB GB / $PageFileSizeGB GB)" "MEMORY"
@@ -85,7 +85,7 @@ function Get-MemoryAnalysis {
                     Value = "No page file configured"
                     Details = "System has no virtual memory page file"
                     RiskLevel = "MEDIUM"
-                    Compliance = "Consider configuring virtual memory for system stability"
+                    Recommendation = "Consider configuring virtual memory for system stability"
                 }
                 Write-LogMessage "WARN" "No page file configured on system" "MEMORY"
             }
@@ -108,7 +108,7 @@ function Get-MemoryAnalysis {
                 Value = "$AvailableMB MB available"
                 Details = "System has $AvailableMB MB available for allocation"
                 RiskLevel = if ($AvailableMB -lt 512) { "HIGH" } elseif ($AvailableMB -lt 1024) { "MEDIUM" } else { "LOW" }
-                Compliance = if ($AvailableMB -lt 1024) { "Low available memory may impact performance" } else { "" }
+                Recommendation = if ($AvailableMB -lt 1024) { "Low available memory may impact performance" } else { "" }
             }
             
             $Results += [PSCustomObject]@{
@@ -117,7 +117,7 @@ function Get-MemoryAnalysis {
                 Value = "$CommittedMB MB committed"
                 Details = "System has committed $CommittedMB MB of virtual memory"
                 RiskLevel = "INFO"
-                Compliance = ""
+                Recommendation = ""
             }
             
             Write-LogMessage "INFO" "Memory Performance: Available: $AvailableMB MB, Committed: $CommittedMB MB" "MEMORY"
