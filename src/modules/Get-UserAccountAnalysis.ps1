@@ -15,7 +15,7 @@ function Get-UserAccountAnalysis {
         - Administrative privilege distribution analysis
         
     .OUTPUTS
-        Array of PSCustomObjects with Category, Item, Value, Details, RiskLevel, Compliance
+        Array of PSCustomObjects with Category, Item, Value, Details, RiskLevel, Recommendation
         
     .NOTES
         Requires: Write-LogMessage function
@@ -121,7 +121,7 @@ function Get-UserAccountAnalysis {
             Value = $AdminCount
             Details = "Users: $($LocalAdmins -join ', ')"
             RiskLevel = if ($AdminCount -gt 3) { "HIGH" } elseif ($AdminCount -gt 1) { "MEDIUM" } else { "LOW" }
-            Compliance = if ($AdminCount -gt 3) { "Limit administrative access" } else { "" }
+            Recommendation = if ($AdminCount -gt 3) { "Limit administrative access" } else { "" }
         }
         
         # Guest Account Status
@@ -133,7 +133,7 @@ function Get-UserAccountAnalysis {
                 Value = if ($GuestAccount.Disabled) { "Disabled" } else { "Enabled" }
                 Details = "Guest account status"
                 RiskLevel = if ($GuestAccount.Disabled) { "LOW" } else { "HIGH" }
-                Compliance = if (-not $GuestAccount.Disabled) { "Disable guest account" } else { "" }
+                Recommendation = if (-not $GuestAccount.Disabled) { "Disable guest account" } else { "" }
             }
         }
         

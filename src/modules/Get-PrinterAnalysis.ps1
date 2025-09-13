@@ -11,7 +11,7 @@ function Get-PrinterAnalysis {
         driver versions and status, print spooler service health, and default printer settings.
         
     .OUTPUTS
-        Array of PSCustomObjects with Category, Item, Value, Details, RiskLevel, Compliance
+        Array of PSCustomObjects with Category, Item, Value, Details, RiskLevel, Recommendation
         
     .NOTES
         Requires: Write-LogMessage function
@@ -28,7 +28,7 @@ function Get-PrinterAnalysis {
             $SpoolerService = Get-Service -Name "Spooler" -ErrorAction SilentlyContinue
             if ($SpoolerService) {
                 $SpoolerRisk = if ($SpoolerService.Status -ne "Running") { "HIGH" } else { "LOW" }
-                $SpoolerCompliance = if ($SpoolerService.Status -ne "Running") {
+                $SpoolerRecommendation = if ($SpoolerService.Status -ne "Running") {
                     "Print Spooler service should be running for proper printer functionality"
                 } else { "" }
                 
@@ -38,7 +38,7 @@ function Get-PrinterAnalysis {
                     Value = $SpoolerService.Status
                     Details = "Service startup type: $($SpoolerService.StartType)"
                     RiskLevel = $SpoolerRisk
-                    Compliance = $SpoolerCompliance
+                    Recommendation = ""
                 }
                 
                 Write-LogMessage "INFO" "Print Spooler Service: $($SpoolerService.Status)" "PRINTER"
@@ -60,7 +60,7 @@ function Get-PrinterAnalysis {
                     Value = "No printers found"
                     Details = "System has no configured printers"
                     RiskLevel = "INFO"
-                    Compliance = ""
+                    Recommendation = ""
                 }
                 Write-LogMessage "INFO" "No printers configured on system" "PRINTER"
             } else {
@@ -109,7 +109,7 @@ function Get-PrinterAnalysis {
                         default { "Status Code: $PrinterStatus" }
                     }
                     
-                    $PrinterCompliance = if ($PrinterStatus -eq 7) {
+                    $PrinterRecommendation = if ($PrinterStatus -eq 7) {
                         "Offline printers should be investigated and restored"
                     } elseif ($PrinterStatus -eq 6) {
                         "Stopped printers may indicate driver or connectivity issues"
@@ -124,7 +124,7 @@ function Get-PrinterAnalysis {
                         Value = "$PrinterName"
                         Details = "Type: $PrinterType, Status: $StatusText, Driver: $DriverName"
                         RiskLevel = $PrinterRisk
-                        Compliance = $PrinterCompliance
+                        Recommendation = ""
                     }
                     
                     Write-LogMessage "INFO" "$PrinterType printer '$PrinterName': $StatusText" "PRINTER"
@@ -137,7 +137,7 @@ function Get-PrinterAnalysis {
                     Value = "$PrinterCount total printers"
                     Details = "Local: $LocalPrinters, Network: $NetworkPrinters, Default: $DefaultPrinter"
                     RiskLevel = "INFO"
-                    Compliance = ""
+                    Recommendation = ""
                 }
                 
                 Write-LogMessage "INFO" "Printer Summary: $PrinterCount total ($LocalPrinters local, $NetworkPrinters network)" "PRINTER"
@@ -161,7 +161,7 @@ function Get-PrinterAnalysis {
                     Value = "$UniqueDrivers unique drivers installed"
                     Details = "Total driver installations: $DriverCount"
                     RiskLevel = "INFO"
-                    Compliance = ""
+                    Recommendation = ""
                 }
                 
                 Write-LogMessage "INFO" "Printer Drivers: $UniqueDrivers unique drivers, $DriverCount total installations" "PRINTER"
@@ -184,7 +184,7 @@ function Get-PrinterAnalysis {
                     $SNMPEnabled = $Port.SNMPEnabled
                     
                     $PortRisk = if (-not $SNMPEnabled -and $Port.Protocol -eq 1) { "MEDIUM" } else { "LOW" }
-                    $PortCompliance = if (-not $SNMPEnabled -and $Port.Protocol -eq 1) {
+                    $PortRecommendation = if (-not $SNMPEnabled -and $Port.Protocol -eq 1) {
                         "Consider enabling SNMP for better printer monitoring"
                     } else { "" }
                     
@@ -194,7 +194,7 @@ function Get-PrinterAnalysis {
                         Value = "${HostAddress}:${PortNumber}"
                         Details = "Port: $PortName, SNMP Enabled: $SNMPEnabled"
                         RiskLevel = $PortRisk
-                        Compliance = $PortCompliance
+                        Recommendation = ""
                     }
                     
                     Write-LogMessage "INFO" "Network printer port: $PortName -> ${HostAddress}:${PortNumber}" "PRINTER"
@@ -214,7 +214,7 @@ function Get-PrinterAnalysis {
                 $StuckJobs = $PrintJobs | Where-Object { $_.Status -like "*Error*" -or $_.Status -like "*Paused*" } | Measure-Object | Select-Object -ExpandProperty Count
                 
                 $QueueRisk = if ($StuckJobs -gt 0) { "MEDIUM" } elseif ($JobCount -gt 10) { "MEDIUM" } else { "LOW" }
-                $QueueCompliance = if ($StuckJobs -gt 0) {
+                $QueueRecommendation = if ($StuckJobs -gt 0) {
                     "Clear stuck print jobs to maintain system performance"
                 } elseif ($JobCount -gt 10) {
                     "Large print queue may indicate printer or network issues"
@@ -226,7 +226,7 @@ function Get-PrinterAnalysis {
                     Value = "$JobCount jobs queued"
                     Details = "Active jobs: $JobCount, Stuck/Error jobs: $StuckJobs"
                     RiskLevel = $QueueRisk
-                    Compliance = $QueueCompliance
+                    Recommendation = ""
                 }
                 
                 Write-LogMessage "INFO" "Print queue: $JobCount jobs ($StuckJobs stuck/error)" "PRINTER"
@@ -237,7 +237,7 @@ function Get-PrinterAnalysis {
                     Value = "Empty"
                     Details = "No print jobs currently queued"
                     RiskLevel = "INFO"
-                    Compliance = ""
+                    Recommendation = ""
                 }
                 
                 Write-LogMessage "INFO" "Print queue is empty" "PRINTER"

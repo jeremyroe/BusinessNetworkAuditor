@@ -1,0 +1,110 @@
+{
+    "version": "1.3.0",
+    "modules": {
+        "system": {
+            "enabled": true,
+            "timeout": 30,
+            "description": "System information and server role detection"
+        },
+        "memory": {
+            "enabled": true,
+            "timeout": 15,
+            "description": "Memory usage and configuration analysis"
+        },
+        "disk": {
+            "enabled": true,
+            "timeout": 20,
+            "description": "Disk space and storage analysis"
+        },
+        "network": {
+            "enabled": true,
+            "timeout": 30,
+            "description": "Network configuration and security analysis"
+        },
+        "process": {
+            "enabled": true,
+            "timeout": 30,
+            "description": "Running processes and services analysis"
+        },
+        "patches": {
+            "enabled": true,
+            "timeout": 60,
+            "description": "Windows Update and patch status"
+        },
+        "software": {
+            "enabled": true,
+            "timeout": 45,
+            "description": "Installed software inventory with server focus"
+        },
+        "security": {
+            "enabled": true,
+            "timeout": 20,
+            "description": "Security settings and antivirus detection"
+        },
+        "eventlog": {
+            "enabled": true,
+            "timeout": 45,
+            "description": "Event log analysis for server events"
+        },
+        "users": {
+            "enabled": true,
+            "timeout": 20,
+            "description": "User accounts with server/service account focus"
+        },
+        "serverroles": {
+            "enabled": true,
+            "timeout": 30,
+            "description": "Windows Server roles and features detection"
+        },
+        "dhcp": {
+            "enabled": true,
+            "timeout": 20,
+            "description": "DHCP server configuration and scope analysis"
+        },
+        "dns": {
+            "enabled": true,
+            "timeout": 20,
+            "description": "DNS server zones and configuration analysis"
+        },
+        "fileshares": {
+            "enabled": true,
+            "timeout": 15,
+            "description": "File shares and permissions analysis"
+        },
+        "activedirectory": {
+            "enabled": true,
+            "timeout": 45,
+            "description": "Active Directory users, groups, and configuration"
+        },
+        "iis": {
+            "enabled": true,
+            "timeout": 20,
+            "description": "IIS web server configuration and sites"
+        },
+        "services": {
+            "enabled": true,
+            "timeout": 15,
+            "description": "Windows services analysis with server focus"
+        }
+    },
+    "output": {
+        "formats": ["markdown", "rawjson"],
+        "path": "./output",
+        "timestamp": true,
+        "filename_prefix": "server_audit"
+    },
+    "settings": {
+        "collect_ad_details": true,
+        "collect_dhcp_reservations": true,
+        "collect_dns_records": false,
+        "collect_iis_bindings": true,
+        "max_ad_users": 1000,
+        "max_ad_groups": 500,
+        "eventlog": {
+            "analysis_days": 3,
+            "max_events_per_query": 500,
+            "workstation_analysis_days": 7,
+            "workstation_max_events": 1000
+        }
+    }
+}

@@ -14,7 +14,7 @@ function Get-SoftwareInventory {
         - Installation date tracking for security assessment
         
     .OUTPUTS
-        Array of PSCustomObjects with Category, Item, Value, Details, RiskLevel, Compliance
+        Array of PSCustomObjects with Category, Item, Value, Details, RiskLevel, Recommendation
         
     .NOTES
         Requires: Write-LogMessage function
@@ -42,7 +42,7 @@ function Get-SoftwareInventory {
             Value = $AllSoftware.Count
             Details = "Unique installed applications"
             RiskLevel = "INFO"
-            Compliance = ""
+            Recommendation = ""
         }
         
         # Check for critical software and versions
@@ -71,7 +71,7 @@ function Get-SoftwareInventory {
                     Value = $Found.DisplayVersion
                     Details = "Install Date: $(if ($InstallDate) { $InstallDate.ToString('yyyy-MM-dd') } else { 'Unknown' }), Age: $(if ($AgeInDays) { "$AgeInDays days" } else { 'Unknown' })"
                     RiskLevel = $RiskLevel
-                    Compliance = if ($AgeInDays -gt 365) { "Regular software updates required" } else { "" }
+                    Recommendation = if ($AgeInDays -gt 365) { "Regular software updates required" } else { "" }
                 }
             }
         }
@@ -131,7 +131,7 @@ function Get-SoftwareInventory {
                     Value = "$($App.DisplayName) - $($App.DisplayVersion)"
                     Details = "Remote access software detected. Install date: $(if ($InstallDate) { $InstallDate.ToString('yyyy-MM-dd') } else { 'Unknown' }). Review business justification and security controls."
                     RiskLevel = $RemoteApp.Risk
-                    Compliance = "Document and secure remote access tools"
+                    Recommendation = "Document and secure remote access tools"
                 }
             }
         }
@@ -200,7 +200,7 @@ function Get-SoftwareInventory {
                     Value = "$($App.DisplayName) - $($App.DisplayVersion)"
                     Details = "RMM/monitoring software detected. Install date: $(if ($InstallDate) { $InstallDate.ToString('yyyy-MM-dd') } else { 'Unknown' }). Review management authorization and security controls."
                     RiskLevel = $RMMApp.Risk
-                    Compliance = "Document and authorize remote monitoring tools"
+                    Recommendation = "Document and authorize remote monitoring tools"
                 }
             }
         }
@@ -247,7 +247,7 @@ function Get-SoftwareInventory {
             Value = "Full inventory available in raw data"
             Details = "Browsers: $($Browsers.Count), Dev Tools: $($DevTools.Count), Office: $($Office.Count), Security: $($Security.Count), Total: $($AllSoftware.Count)"
             RiskLevel = "INFO"
-            Compliance = ""
+            Recommendation = ""
         }
         
         Write-LogMessage "SUCCESS" "Software inventory completed - $($AllSoftware.Count) programs found" "SOFTWARE"

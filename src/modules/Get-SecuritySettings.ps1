@@ -15,7 +15,7 @@ function Get-SecuritySettings {
         - Real-time protection and security service status
         
     .OUTPUTS
-        Array of PSCustomObjects with Category, Item, Value, Details, RiskLevel, Compliance
+        Array of PSCustomObjects with Category, Item, Value, Details, RiskLevel, Recommendation
         
     .NOTES
         Requires: Write-LogMessage function
@@ -174,7 +174,7 @@ function Get-SecuritySettings {
                                 Value = "$ProcessAV - Process Running"
                                 Details = "AV processes detected but not registered with Security Center. May indicate configuration issue or secondary AV installation."
                                 RiskLevel = "MEDIUM"
-                                Compliance = "Verify antivirus registration and avoid conflicting AV products"
+                                Recommendation = "Verify antivirus registration and avoid conflicting AV products"
                             }
                             
                             Write-LogMessage "WARN" "AV process detected but not in Security Center: $ProcessAV" "SECURITY"
@@ -211,23 +211,23 @@ function Get-SecuritySettings {
                 if ($InstanceCount -gt 1) { $Details += ", Multiple instances detected: $InstanceCount" }
                 
                 $RiskLevel = "LOW"
-                $Compliance = ""
+                $Recommendation = ""
                 
                 if (-not $AV.Enabled) {
                     # Check if this is Windows Defender and other AV products are active
                     if ($AV.Name -match "Windows Defender" -and $ActiveAV.Count -gt 0) {
                         $RiskLevel = "LOW" 
-                        $Compliance = "Windows Defender properly disabled - other active AV products detected"
+                        $Recommendation = "Windows Defender properly disabled - other active AV products detected"
                     } else {
                         $RiskLevel = "HIGH"
-                        $Compliance = "Antivirus must be enabled and active"
+                        $Recommendation = "Antivirus must be enabled and active"
                     }
                 } elseif ($AV.UpToDate -eq $false) {
                     $RiskLevel = "MEDIUM"
-                    $Compliance = "Antivirus signatures must be current"
+                    $Recommendation = "Antivirus signatures must be current"
                 } elseif ($InstanceCount -gt 1) {
                     $RiskLevel = "MEDIUM"
-                    $Compliance = "Multiple instances may indicate conflicting installations"
+                    $Recommendation = "Multiple instances may indicate conflicting installations"
                 }
                 
                 $DisplayName = if ($InstanceCount -gt 1) { "$($AV.Name) (x$InstanceCount)" } else { $AV.Name }
@@ -238,7 +238,7 @@ function Get-SecuritySettings {
                     Value = "$DisplayName - $StatusText"
                     Details = $Details
                     RiskLevel = $RiskLevel
-                    Compliance = $Compliance
+                    Recommendation = ""
                 }
             }
             
@@ -256,17 +256,17 @@ function Get-SecuritySettings {
             }
             
             $SummaryRisk = "LOW"
-            $SummaryCompliance = ""
+            $SummaryRecommendation = ""
             
             if ($UniqueActiveProducts -eq 0) {
                 $SummaryRisk = "HIGH"
-                $SummaryCompliance = "No active antivirus protection"
+                $SummaryRecommendation = "No active antivirus protection"
             } elseif ($UniqueActiveProducts -gt 1) {
                 $SummaryRisk = "MEDIUM"
-                $SummaryCompliance = "Multiple active AV products may cause conflicts - review configuration"
+                $SummaryRecommendation = "Multiple active AV products may cause conflicts - review configuration"
             } elseif ($TotalInstances -gt $UniqueDetectedProducts) {
                 $SummaryRisk = "MEDIUM"
-                $SummaryCompliance = "Multiple instances of same products detected - review for cleanup"
+                $SummaryRecommendation = "Multiple instances of same products detected - review for cleanup"
             }
             
             $Results += [PSCustomObject]@{
@@ -275,7 +275,7 @@ function Get-SecuritySettings {
                 Value = "$UniqueActiveProducts active of $UniqueDetectedProducts products"
                 Details = $SummaryDetails
                 RiskLevel = $SummaryRisk
-                Compliance = $SummaryCompliance
+                Recommendation = ""
             }
             
             Write-LogMessage "SUCCESS" "Enhanced AV detection: $UniqueActiveProducts unique active products, $UniqueDetectedProducts total products, $TotalInstances instances" "SECURITY"
@@ -286,7 +286,7 @@ function Get-SecuritySettings {
                 Value = "None detected"
                 Details = "No antivirus software detected via Security Center, Defender API, or process analysis"
                 RiskLevel = "HIGH"
-                Compliance = "Antivirus protection required"
+                Recommendation = "Antivirus protection required"
             }
             
             Write-LogMessage "ERROR" "No antivirus protection detected by enhanced detection methods" "SECURITY"
@@ -304,7 +304,7 @@ function Get-SecuritySettings {
                 Value = if ($Profile.Enabled) { "Enabled" } else { "Disabled" }
                 Details = "Default action: Inbound=$($Profile.DefaultInboundAction), Outbound=$($Profile.DefaultOutboundAction)"
                 RiskLevel = if ($Profile.Enabled) { "LOW" } else { "HIGH" }
-                Compliance = if (-not $Profile.Enabled) { "Enable firewall protection" } else { "" }
+                Recommendation = if (-not $Profile.Enabled) { "Enable firewall protection" } else { "" }
             }
         }
         
@@ -316,7 +316,7 @@ function Get-SecuritySettings {
             Value = if ($UACKey.EnableLUA) { "Enabled" } else { "Disabled" }
             Details = "UAC elevation prompts"
             RiskLevel = if ($UACKey.EnableLUA) { "LOW" } else { "HIGH" }
-            Compliance = if (-not $UACKey.EnableLUA) { "Enable UAC for privilege escalation control" } else { "" }
+            Recommendation = if (-not $UACKey.EnableLUA) { "Enable UAC for privilege escalation control" } else { "" }
         }
         
         # BitLocker Encryption Analysis
@@ -389,7 +389,7 @@ function Get-SecuritySettings {
                             default { "HIGH" }
                         }
                         
-                        $VolumeCompliance = switch ($Volume.VolumeStatus) {
+                        $VolumeRecommendation = switch ($Volume.VolumeStatus) {
                             "FullyDecrypted" { "Enable BitLocker encryption for data protection" }
                             "DecryptionInProgress" { "Complete BitLocker decryption or re-enable encryption" }
                             "EncryptionInProgress" { "Allow BitLocker encryption to complete" }
@@ -398,7 +398,7 @@ function Get-SecuritySettings {
                         
                         # Add recovery key escrow compliance
                         if ($Volume.VolumeStatus -eq "FullyEncrypted" -and -not $RecoveryKeyEscrowed) {
-                            $VolumeCompliance = "Backup BitLocker recovery key to Azure AD or Active Directory"
+                            $VolumeRecommendation = "Backup BitLocker recovery key to Azure AD or Active Directory"
                             $VolumeRisk = "MEDIUM"
                         }
                         
@@ -408,7 +408,7 @@ function Get-SecuritySettings {
                             Value = "$($Volume.MountPoint) - $($Volume.VolumeStatus)"
                             Details = "Encryption: $($Volume.EncryptionPercentage)%, Protection: $($Volume.ProtectionStatus), Method: $($Volume.EncryptionMethod), Key Escrow: $EscrowLocation"
                             RiskLevel = $VolumeRisk
-                            Compliance = $VolumeCompliance
+                            Recommendation = ""
                         }
                         
                         Write-LogMessage "INFO" "BitLocker volume $($Volume.MountPoint): $($Volume.VolumeStatus), Escrow: $EscrowLocation" "SECURITY"
@@ -423,7 +423,7 @@ function Get-SecuritySettings {
                         Value = "$EncryptedCount of $TotalVolumes volumes encrypted"
                         Details = "BitLocker disk encryption status across all volumes"
                         RiskLevel = if ($EncryptedCount -eq $TotalVolumes) { "LOW" } elseif ($EncryptedCount -gt 0) { "MEDIUM" } else { "HIGH" }
-                        Compliance = if ($EncryptedCount -lt $TotalVolumes) { "Encrypt all system and data volumes with BitLocker" } else { "" }
+                        Recommendation = if ($EncryptedCount -lt $TotalVolumes) { "Encrypt all system and data volumes with BitLocker" } else { "" }
                     }
                     
                 } else {
@@ -433,7 +433,7 @@ function Get-SecuritySettings {
                         Value = "No volumes detected"
                         Details = "Unable to retrieve BitLocker volume information"
                         RiskLevel = "MEDIUM"
-                        Compliance = "Verify BitLocker configuration and permissions"
+                        Recommendation = "Verify BitLocker configuration and permissions"
                     }
                 }
             } else {
@@ -443,7 +443,7 @@ function Get-SecuritySettings {
                     Value = "Not Available"
                     Details = "BitLocker feature not enabled or not supported"
                     RiskLevel = "HIGH"
-                    Compliance = "Enable BitLocker feature for disk encryption"
+                    Recommendation = "Enable BitLocker feature for disk encryption"
                 }
             }
         }
@@ -455,7 +455,7 @@ function Get-SecuritySettings {
                 Value = "Analysis Failed"
                 Details = "Unable to analyze BitLocker status - may require elevated privileges"
                 RiskLevel = "MEDIUM"
-                Compliance = "Manual verification required"
+                Recommendation = "Manual verification required"
             }
         }
         

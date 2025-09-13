@@ -37,11 +37,40 @@ function Export-MarkdownReport {
         $ReportContent = @()
         
         # Header
-        $ReportContent += "# Windows Workstation Security Audit Report"
+        #region Report Header Generation
+        # Auto-detect if this is a server audit based on results content or OS type
+        $IsServerAudit = $false
+        
+        # Method 1: Check if server-specific results are present
+        $ServerIndicators = @("Server Roles", "DHCP", "DNS", "Active Directory")
+        $HasServerResults = $Results | Where-Object { $_.Category -in $ServerIndicators }
+        
+        # Method 2: Check OS type via WMI
+        try {
+            $OSInfo = Get-CimInstance -ClassName Win32_OperatingSystem -ErrorAction SilentlyContinue
+            $IsWindowsServer = $OSInfo.ProductType -ne 1  # ProductType: 1=Workstation, 2=DC, 3=Server
+        }
+        catch {
+            $IsWindowsServer = $false
+        }
+        
+        # Determine audit type
+        $IsServerAudit = ($HasServerResults.Count -gt 0) -or $IsWindowsServer
+        
+        # Generate appropriate header
+        if ($IsServerAudit) {
+            $ReportContent += "# Windows Server IT Assessment Report"
+            $ReportTitle = "WindowsServerAuditor v1.3.0"
+        } else {
+            $ReportContent += "# Windows Workstation Security Audit Report" 
+            $ReportTitle = "WindowsWorkstationAuditor v1.3.0"
+        }
+        
         $ReportContent += ""
         $ReportContent += "**Computer:** $env:COMPUTERNAME"
         $ReportContent += "**Generated:** $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')"
-        $ReportContent += "**Tool Version:** WindowsWorkstationAuditor v1.3.0"
+        $ReportContent += "**Tool Version:** $ReportTitle"
+        #endregion
         $ReportContent += ""
         
         # Executive Summary
@@ -71,8 +100,8 @@ function Export-MarkdownReport {
                 foreach ($Item in $HighRisk) {
                     $ReportContent += "- **$($Item.Category) - $($Item.Item):** $($Item.Value)"
                     $ReportContent += "  - Details: $($Item.Details)"
-                    if ($Item.Compliance) {
-                        $ReportContent += "  - Compliance: $($Item.Compliance)"
+                    if ($Item.Recommendation) {
+                        $ReportContent += "  - Recommendation: $($Item.Recommendation)"
                     }
                     $ReportContent += ""
                 }
@@ -84,8 +113,8 @@ function Export-MarkdownReport {
                 foreach ($Item in $MediumRisk) {
                     $ReportContent += "- **$($Item.Category) - $($Item.Item):** $($Item.Value)"
                     $ReportContent += "  - Details: $($Item.Details)"
-                    if ($Item.Compliance) {
-                        $ReportContent += "  - Compliance: $($Item.Compliance)"
+                    if ($Item.Recommendation) {
+                        $ReportContent += "  - Recommendation: $($Item.Recommendation)"
                     }
                     $ReportContent += ""
                 }
@@ -116,8 +145,8 @@ function Export-MarkdownReport {
                     $ReportContent += "**$RiskIcon $($Item.Item):** $($Item.Value)"
                     $ReportContent += ""
                     $ReportContent += "- **Details:** $($Item.Details)"
-                    if ($Item.Compliance) {
-                        $ReportContent += "- **Compliance:** $($Item.Compliance)"
+                    if ($Item.Recommendation) {
+                        $ReportContent += "- **Recommendation:** $($Item.Recommendation)"
                     }
                     $ReportContent += ""
                 }
@@ -135,12 +164,12 @@ function Export-MarkdownReport {
             $ReportContent += ""
         }
         
-        # Compliance Summary
-        $ComplianceItems = $Results | Where-Object { $_.Compliance -and $_.Compliance.Trim() -ne "" }
-        if ($ComplianceItems.Count -gt 0) {
-            $ReportContent += "## Compliance Recommendations"
+        # Recommendation Summary
+        $RecommendationItems = $Results | Where-Object { $_.Recommendation -and $_.Recommendation.Trim() -ne "" }
+        if ($RecommendationItems.Count -gt 0) {
+            $ReportContent += "## Recommendations"
             $ReportContent += ""
-            $ComplianceItems | Group-Object Compliance | ForEach-Object {
+            $RecommendationItems | Group-Object Recommendation | ForEach-Object {
                 $ReportContent += "- **$($_.Name)**"
                 $ReportContent += "  - Affected Items: $($_.Count)"
                 $ReportContent += ""

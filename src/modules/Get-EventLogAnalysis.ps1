@@ -11,19 +11,64 @@ function Get-EventLogAnalysis {
         logon failures, system errors, security policy changes, and other critical events
         that may indicate security issues or system problems.
         
+        Performance optimized for servers with extensive log histories.
+        
     .OUTPUTS
-        Array of PSCustomObjects with Category, Item, Value, Details, RiskLevel, Compliance
+        Array of PSCustomObjects with Category, Item, Value, Details, RiskLevel, Recommendation
         
     .NOTES
         Requires: Write-LogMessage function
         Permissions: Local user (Event Log read access)
+        Performance: Limits analysis timeframe based on system type for optimal performance
     #>
     
     Write-LogMessage "INFO" "Analyzing Windows Event Logs for security events..." "EVENTLOG"
     
     try {
         $Results = @()
-        $AnalysisStartTime = (Get-Date).AddDays(-7)  # Analyze last 7 days
+        
+        # Auto-detect system type and get configuration settings
+        try {
+            $OSInfo = Get-CimInstance -ClassName Win32_OperatingSystem -ErrorAction SilentlyContinue
+            $IsServer = $OSInfo.ProductType -ne 1  # ProductType: 1=Workstation, 2=DC, 3=Server
+        }
+        catch {
+            $IsServer = $false
+        }
+        
+        # Get event log configuration from config (with fallback defaults)
+        $EventLogConfig = $null
+        if (Get-Variable -Name "Config" -Scope Global -ErrorAction SilentlyContinue) {
+            $EventLogConfig = $Global:Config.settings.eventlog
+        }
+        
+        # Set analysis timeframes based on configuration or intelligent defaults
+        if ($EventLogConfig) {
+            if ($IsServer) {
+                $AnalysisDays = if ($EventLogConfig.analysis_days) { $EventLogConfig.analysis_days } else { 3 }
+                $MaxEventsPerQuery = if ($EventLogConfig.max_events_per_query) { $EventLogConfig.max_events_per_query } else { 500 }
+            } else {
+                $AnalysisDays = if ($EventLogConfig.workstation_analysis_days) { $EventLogConfig.workstation_analysis_days } else { 7 }
+                $MaxEventsPerQuery = if ($EventLogConfig.workstation_max_events) { $EventLogConfig.workstation_max_events } else { 1000 }
+            }
+            Write-LogMessage "INFO" "Using configured event log settings: $AnalysisDays days, max $MaxEventsPerQuery events" "EVENTLOG"
+        } else {
+            # Fallback to hardcoded defaults if no config available
+            if ($IsServer) {
+                $AnalysisDays = 3
+                $MaxEventsPerQuery = 500
+                Write-LogMessage "INFO" "Server detected - using default: 3 days, max 500 events (no config)" "EVENTLOG"
+            } else {
+                $AnalysisDays = 7
+                $MaxEventsPerQuery = 1000
+                Write-LogMessage "INFO" "Workstation detected - using default: 7 days, max 1000 events (no config)" "EVENTLOG"
+            }
+        }
+        
+        $AnalysisStartTime = (Get-Date).AddDays(-$AnalysisDays)
+        
+        $SystemType = if ($IsServer) { "Server" } else { "Workstation" }
+        Write-LogMessage "INFO" "$SystemType detected - analyzing last $AnalysisDays days (max $MaxEventsPerQuery events per query)" "EVENTLOG"
         
         # Define critical event IDs to monitor
         $CriticalEvents = @{
@@ -56,7 +101,7 @@ function Get-EventLogAnalysis {
                 $SecurityUsagePercent = [math]::Round(($SecurityLogSize / $SecurityMaxSize) * 100, 1)
                 
                 $SecurityRisk = if ($SecurityUsagePercent -gt 90) { "HIGH" } elseif ($SecurityUsagePercent -gt 75) { "MEDIUM" } else { "LOW" }
-                $SecurityCompliance = if ($SecurityUsagePercent -gt 85) {
+                $SecurityRecommendation = if ($SecurityUsagePercent -gt 85) {
                     "Security event log approaching capacity - consider archiving"
                 } else { "" }
                 
@@ -66,7 +111,7 @@ function Get-EventLogAnalysis {
                     Value = "$SecurityUsagePercent% full"
                     Details = "Size: $SecurityLogSize MB / $SecurityMaxSize MB, Entry count available via event queries"
                     RiskLevel = $SecurityRisk
-                    Compliance = $SecurityCompliance
+                    Recommendation = $SecurityRecommendation
                 }
                 
                 Write-LogMessage "INFO" "Security log: $SecurityUsagePercent% full ($SecurityLogSize MB / $SecurityMaxSize MB)" "EVENTLOG"
@@ -83,7 +128,7 @@ function Get-EventLogAnalysis {
                     Value = "$SystemUsagePercent% full"
                     Details = "Size: $SystemLogSize MB / $SystemMaxSize MB, Entry count available via event queries"
                     RiskLevel = "INFO"
-                    Compliance = ""
+                    Recommendation = ""
                 }
                 
                 Write-LogMessage "INFO" "System log: $SystemUsagePercent% full ($SystemLogSize MB / $SystemMaxSize MB)" "EVENTLOG"
@@ -103,7 +148,8 @@ function Get-EventLogAnalysis {
             try {
                 Write-LogMessage "INFO" "Checking for Event ID $EventID ($Description) in $LogName log..." "EVENTLOG"
                 
-                $Events = Get-EventLog -LogName $LogName -After $AnalysisStartTime -InstanceId $EventID -ErrorAction SilentlyContinue
+                # Performance-limited event query
+                $Events = Get-EventLog -LogName $LogName -After $AnalysisStartTime -InstanceId $EventID -Newest $MaxEventsPerQuery -ErrorAction SilentlyContinue
                 
                 if ($Events) {
                     $EventCount = $Events.Count
@@ -112,39 +158,43 @@ function Get-EventLogAnalysis {
                     
                     # Determine risk level based on event type and frequency
                     $RiskLevel = $BaseRiskLevel
-                    $Compliance = ""
+                    $Recommendation = ""
                     
                     # Special handling for high-frequency events
                     if ($EventID -eq 4625 -and $EventCount -gt 50) {  # Multiple failed logons
                         $RiskLevel = "HIGH"
-                        $Compliance = "Investigate multiple failed logon attempts - possible brute force attack"
+                        $Recommendation = "Investigate multiple failed logon attempts - possible brute force attack"
                     }
                     elseif ($EventID -eq 4740 -and $EventCount -gt 5) {  # Multiple account lockouts
                         $RiskLevel = "HIGH"
-                        $Compliance = "Multiple account lockouts may indicate attack or policy issues"
+                        $Recommendation = "Multiple account lockouts may indicate attack or policy issues"
                     }
                     elseif ($EventID -eq 6008 -and $EventCount -gt 3) {  # Multiple unexpected shutdowns
                         $RiskLevel = "HIGH"
-                        $Compliance = "Multiple unexpected shutdowns may indicate system instability"
+                        $Recommendation = "Multiple unexpected shutdowns may indicate system instability"
                     }
                     elseif ($EventID -eq 7034 -and $EventCount -gt 10) {  # Multiple service crashes
                         $RiskLevel = "HIGH"
-                        $Compliance = "Multiple service crashes may indicate system problems"
+                        $Recommendation = "Multiple service crashes may indicate system problems"
                     }
                     elseif ($EventID -eq 4625) {
-                        $Compliance = "Monitor failed logon attempts for security threats"
+                        $Recommendation = "Monitor failed logon attempts for security threats"
                     }
                     elseif ($EventID -eq 4672) {
-                        $Compliance = "Monitor special privilege assignments for unauthorized elevation"
+                        $Recommendation = "Monitor special privilege assignments for unauthorized elevation"
                     }
+                    
+                    # Dynamic timeframe display using configured values
+                    $TimeframeDays = "$AnalysisDays days"
+                    $EventCountDisplay = if ($EventCount -eq $MaxEventsPerQuery) { "$EventCount+ events" } else { "$EventCount events" }
                     
                     $Results += [PSCustomObject]@{
                         Category = "Security Events"
                         Item = $Description
-                        Value = "$EventCount events (7 days)"
+                        Value = "$EventCountDisplay ($TimeframeDays)"
                         Details = "Event ID: $EventID, Most recent: $MostRecentTime"
                         RiskLevel = $RiskLevel
-                        Compliance = $Compliance
+                        Recommendation = $Recommendation
                     }
                     
                     Write-LogMessage "INFO" "Event ID $EventID`: $EventCount events found, most recent: $MostRecentTime" "EVENTLOG"
@@ -161,13 +211,16 @@ function Get-EventLogAnalysis {
             }
         }
         
-        # Check for Windows Defender events
+        # Check for Windows Defender events (performance limited)
         try {
-            $DefenderEvents = Get-WinEvent -FilterHashtable @{LogName="Microsoft-Windows-Windows Defender/Operational"; StartTime=$AnalysisStartTime} -ErrorAction SilentlyContinue
+            $DefenderEvents = Get-WinEvent -FilterHashtable @{LogName="Microsoft-Windows-Windows Defender/Operational"; StartTime=$AnalysisStartTime} -MaxEvents $MaxEventsPerQuery -ErrorAction SilentlyContinue
             
             if ($DefenderEvents) {
                 $ThreatEvents = $DefenderEvents | Where-Object { $_.Id -in @(1006, 1007, 1008, 1009, 1116, 1117) }
                 $ScanEvents = $DefenderEvents | Where-Object { $_.Id -in @(1000, 1001, 1002) }
+                
+                # Use dynamic timeframe for display
+                $TimeframeDays = "$AnalysisDays days"
                 
                 if ($ThreatEvents) {
                     $ThreatCount = $ThreatEvents.Count
@@ -175,19 +228,19 @@ function Get-EventLogAnalysis {
                         Category = "Security Events"
                         Item = "Windows Defender Threats"
                         Value = "$ThreatCount threats detected"
-                        Details = "Threat detection events in last 7 days"
+                        Details = "Threat detection events in last $TimeframeDays"
                         RiskLevel = "HIGH"
-                        Compliance = "Investigate and remediate detected security threats"
+                        Recommendation = "Investigate and remediate detected security threats"
                     }
-                    Write-LogMessage "WARN" "Windows Defender: $ThreatCount threats detected in last 7 days" "EVENTLOG"
+                    Write-LogMessage "WARN" "Windows Defender: $ThreatCount threats detected in last $TimeframeDays" "EVENTLOG"
                 } else {
                     $Results += [PSCustomObject]@{
                         Category = "Security Events"
                         Item = "Windows Defender Threats"
                         Value = "0 threats detected"
-                        Details = "No threat detection events in last 7 days"
+                        Details = "No threat detection events in last $TimeframeDays"
                         RiskLevel = "LOW"
-                        Compliance = ""
+                        Recommendation = ""
                     }
                 }
                 
@@ -197,11 +250,11 @@ function Get-EventLogAnalysis {
                         Category = "Security Events"
                         Item = "Windows Defender Scans"
                         Value = "$ScanCount scans performed"
-                        Details = "Antivirus scan events in last 7 days"
+                        Details = "Antivirus scan events in last $TimeframeDays"
                         RiskLevel = "INFO"
-                        Compliance = ""
+                        Recommendation = ""
                     }
-                    Write-LogMessage "INFO" "Windows Defender: $ScanCount scans performed in last 7 days" "EVENTLOG"
+                    Write-LogMessage "INFO" "Windows Defender: $ScanCount scans performed in last $TimeframeDays" "EVENTLOG"
                 }
             }
         }
@@ -220,7 +273,7 @@ function Get-EventLogAnalysis {
                 }
                 
                 $PSRisk = if ($SuspiciousPS.Count -gt 0) { "HIGH" } elseif ($PSEventCount -gt 100) { "MEDIUM" } else { "LOW" }
-                $PSCompliance = if ($SuspiciousPS.Count -gt 0) {
+                $PSRecommendation = if ($SuspiciousPS.Count -gt 0) {
                     "Investigate suspicious PowerShell execution patterns"
                 } elseif ($PSEventCount -gt 100) {
                     "High PowerShell usage - review for legitimate business needs"
@@ -254,7 +307,7 @@ function Get-EventLogAnalysis {
                     Value = "$PSEventCount executions (7 days)"
                     Details = "$PatternDetails. Total suspicious events: $($SuspiciousPS.Count)"
                     RiskLevel = $PSRisk
-                    Compliance = $PSCompliance
+                    Recommendation = $PSRecommendation
                 }
                 
                 # Add raw PowerShell events to data collection for detailed analysis
@@ -286,7 +339,7 @@ function Get-EventLogAnalysis {
             if ($USBEvents) {
                 $USBCount = $USBEvents.Count
                 $USBRisk = if ($USBCount -gt 20) { "MEDIUM" } else { "LOW" }
-                $USBCompliance = if ($USBCount -gt 10) {
+                $USBRecommendation = if ($USBCount -gt 10) {
                     "Monitor USB device usage for data loss prevention"
                 } else { "" }
                 
@@ -296,7 +349,7 @@ function Get-EventLogAnalysis {
                     Value = "$USBCount USB events (7 days)"
                     Details = "USB device insertion/removal events"
                     RiskLevel = $USBRisk
-                    Compliance = $USBCompliance
+                    Recommendation = $USBRecommendation
                 }
                 
                 Write-LogMessage "INFO" "USB events: $USBCount device events in last 7 days" "EVENTLOG"

@@ -12,7 +12,7 @@ function Get-ProcessAnalysis {
         based on process characteristics and known threat indicators.
         
     .OUTPUTS
-        Array of PSCustomObjects with Category, Item, Value, Details, RiskLevel, Compliance
+        Array of PSCustomObjects with Category, Item, Value, Details, RiskLevel, Recommendation
         
     .NOTES
         Requires: Write-LogMessage function
@@ -37,7 +37,7 @@ function Get-ProcessAnalysis {
                 Value = "$ProcessCount total processes"
                 Details = "System processes: $($SystemProcesses.Count), User processes: $($UserProcesses.Count)"
                 RiskLevel = "INFO"
-                Compliance = ""
+                Recommendation = ""
             }
             
             # Check for high CPU usage processes - header + detail format
@@ -54,7 +54,7 @@ function Get-ProcessAnalysis {
                     Value = "$($HighCPUProcesses.Count) processes detected"
                     Details = "Processes using significant CPU time may impact system performance"
                     RiskLevel = $CPURisk
-                    Compliance = if ($TopCPU -gt 180) { "Investigate high CPU usage processes for performance impact" } else { "" }
+                    Recommendation = if ($TopCPU -gt 180) { "Investigate high CPU usage processes for performance impact" } else { "" }
                 }
                 
                 # Individual detail entries without compliance duplication
@@ -70,7 +70,7 @@ function Get-ProcessAnalysis {
                         Value = "$ProcessName (PID: $ProcessId)"
                         Details = "CPU: $CPU seconds, Memory: $Memory MB"
                         RiskLevel = "INFO"
-                        Compliance = ""
+                        Recommendation = ""
                     }
                     
                     Write-LogMessage "INFO" "High CPU process: $ProcessName - CPU: $CPU seconds, Memory: $Memory MB" "PROCESS"
@@ -96,7 +96,7 @@ function Get-ProcessAnalysis {
                 Value = "$($Services.Count) total services"
                 Details = "Running: $($RunningServices.Count), Stopped: $($StoppedServices.Count), Auto-start: $($StartupServices.Count)"
                 RiskLevel = "INFO"
-                Compliance = ""
+                Recommendation = ""
             }
             
             # Check for critical security services
@@ -116,7 +116,7 @@ function Get-ProcessAnalysis {
                 if ($Service) {
                     $ServiceStatus = $Service.Status
                     $ServiceRisk = if ($ServiceStatus -ne "Running") { "HIGH" } else { "LOW" }
-                    $ServiceCompliance = if ($ServiceStatus -ne "Running") {
+                    $ServiceRecommendation = if ($ServiceStatus -ne "Running") {
                         "Critical security service should be running"
                     } else { "" }
                     
@@ -126,7 +126,7 @@ function Get-ProcessAnalysis {
                         Value = $ServiceStatus
                         Details = "Critical security service ($ServiceName)"
                         RiskLevel = $ServiceRisk
-                        Compliance = $ServiceCompliance
+                        Recommendation = ""
                     }
                     
                     Write-LogMessage "INFO" "Security service $DisplayName`: $ServiceStatus" "PROCESS"
@@ -137,7 +137,7 @@ function Get-ProcessAnalysis {
                         Value = "Not Found"
                         Details = "Critical security service ($ServiceName) not found"
                         RiskLevel = "MEDIUM"
-                        Compliance = "Security service not found - may indicate system compromise"
+                        Recommendation = "Security service not found - may indicate system compromise"
                     }
                     
                     Write-LogMessage "WARN" "Security service not found: $DisplayName" "PROCESS"
@@ -214,7 +214,7 @@ function Get-ProcessAnalysis {
             
             $StartupCount = $StartupPrograms.Count
             $StartupRisk = if ($StartupCount -gt 20) { "MEDIUM" } elseif ($StartupCount -gt 30) { "HIGH" } else { "LOW" }
-            $StartupCompliance = if ($StartupCount -gt 25) {
+            $StartupRecommendation = if ($StartupCount -gt 25) {
                 "Large number of startup programs may impact boot time and security"
             } else { "" }
             
@@ -224,7 +224,7 @@ function Get-ProcessAnalysis {
                 Value = "$StartupCount programs configured"
                 Details = "Registry entries and startup folder items"
                 RiskLevel = $StartupRisk
-                Compliance = $StartupCompliance
+                Recommendation = ""
             }
             
             # Check for startup entries from unusual locations
@@ -240,7 +240,7 @@ function Get-ProcessAnalysis {
                         Value = $Unusual.Name
                         Details = "Running from: $($Unusual.Command). Programs should typically run from Program Files or system directories."
                         RiskLevel = "HIGH"
-                        Compliance = "Investigate startup programs from temporary or unusual locations"
+                        Recommendation = "Investigate startup programs from temporary or unusual locations"
                     }
                     
                     Write-LogMessage "WARN" "Startup from unusual location: $($Unusual.Name) - $($Unusual.Command)" "PROCESS"
@@ -271,7 +271,7 @@ function Get-ProcessAnalysis {
                 Value = "Memory: $MemoryUsagePercent% used"
                 Details = "Total RAM: $TotalMemoryGB GB, Processors: $ProcessorCount, Active processes: $ProcessCount"
                 RiskLevel = if ($MemoryUsagePercent -gt 85) { "HIGH" } elseif ($MemoryUsagePercent -gt 75) { "MEDIUM" } else { "LOW" }
-                Compliance = if ($MemoryUsagePercent -gt 80) { "High memory usage may impact system performance" } else { "" }
+                Recommendation = if ($MemoryUsagePercent -gt 80) { "High memory usage may impact system performance" } else { "" }
             }
             
             Write-LogMessage "INFO" "System resources: $MemoryUsagePercent% memory used, $ProcessorCount processors" "PROCESS"
