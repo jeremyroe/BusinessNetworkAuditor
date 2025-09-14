@@ -28,6 +28,13 @@ BusinessNetworkAuditor is an internal IT assessment tool designed for understand
 - **Risk Assessment**: Flagged items requiring IT attention (HIGH/MEDIUM/LOW/INFO)
 - **IT Management Insights**: Remote access tools, RMM platforms, management gaps
 
+### Multi-System Aggregation
+- **NetworkAuditAggregator**: Consolidates findings from multiple systems into client-ready reports
+- **Executive Dashboards**: High-level metrics, risk distribution, and priority recommendations
+- **Professional HTML Reports**: Color-coded risk sections matching consulting deliverable format
+- **Scoring Matrix**: Component-based ratings (1-5 scale) with adherence levels
+- **Systems Overview**: Letter grades (A-F) per system and category for quick assessment
+
 ## Deployment Options
 
 ### Local Execution
@@ -59,6 +66,31 @@ iex (irm https://your-url/WindowsServerAuditor-Web.ps1)
 # Custom output path
 $OutputPath = "C:\RemoteAssessments"; iex (irm https://your-url/WindowsWorkstationAuditor-Web.ps1)
 ```
+
+### Multi-System Report Aggregation
+Generate consolidated client reports from multiple system audits:
+
+```powershell
+# 1. Run individual system audits and collect JSON files
+.\src\WindowsWorkstationAuditor.ps1  # Creates JSON in output/
+.\src\WindowsServerAuditor.ps1       # Creates JSON in output/
+
+# 2. Copy JSON files to aggregator import folder
+copy output\*_raw_data.json import\
+
+# 3. Generate consolidated client report
+.\src\NetworkAuditAggregator.ps1 -ClientName "Client Organization"
+
+# Output: Professional HTML report ready for client presentation
+# File: output\Client-Organization-IT-Assessment-Report-YYYY-MM-DD.html
+```
+
+**Aggregator Features:**
+- **Executive Summary**: System counts, risk distribution, priority actions
+- **Scoring Matrix**: Component ratings (1-5) with criticality levels
+- **Risk Analysis**: Color-coded HIGH/MEDIUM/LOW findings with recommendations  
+- **Systems Overview**: Individual system grades (A-F) by category
+- **Client-Ready Format**: Professional styling optimized for consulting deliverables
 
 ## Requirements
 - Windows 10/11 (workstations) or Windows Server 2016+ (servers)

@@ -1,8 +1,13 @@
 # Output files
+output/
 output/*.csv
 output/*.log
 output/*.html
 output/*.pdf
+
+# Aggregator directories  
+import/
+import/*.json
 
 # Temporary files
 *.tmp
