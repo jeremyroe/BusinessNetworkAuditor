@@ -1,105 +1,71 @@
 # BusinessNetworkAuditor
 
-A comprehensive PowerShell-based security audit tool for Windows workstations and servers. Performs detailed security assessments with professional reporting focused on actionable security findings and investigation points.
+PowerShell-based IT assessment tool for Windows workstations and servers. Performs comprehensive discovery and inventory of IT infrastructure with detailed reporting for business technology management.
+
+## Overview
+
+BusinessNetworkAuditor is an internal IT assessment tool designed for understanding and documenting Windows IT environments. It collects system configurations, software inventory, and IT management settings to provide visibility into business technology infrastructure.
 
 ## Features
 
-### **Comprehensive Security Analysis**
-- **System Information**: OS details, hardware specs, domain status, Azure AD/MDM enrollment detection
-- **User Account Analysis**: Local administrators, account policies, dormant accounts, privilege risks
-- **Software Inventory**: Complete application catalog with remote access and RMM tool detection
-- **Security Settings**: Multi-AV detection, firewall status, BitLocker encryption analysis
-- **Patch Management**: Update status, available patches, security update compliance
-- **Policy Analysis**: Domain GPO vs MDM vs Local policy separation with actual setting values
-- **Network Security**: Risky open ports, network shares, adapter configuration, DNS settings
-- **Process Analysis**: High CPU processes, running services, memory analysis
-- **Event Log Analysis**: Security events, PowerShell execution patterns, threat indicators
-- **Storage Analysis**: Disk usage, health status, capacity planning
+### System Discovery
+- **System Information**: OS details, hardware specs, domain status, Azure AD enrollment
+- **User Account Analysis**: Administrator accounts, account policies, Active Directory analysis
+- **Software Inventory**: Complete application catalog with remote access and management tools
+- **IT Management Tools**: Antivirus status, patch management, BitLocker encryption
+- **Network Configuration**: Network shares, adapter settings, DNS configuration
+- **Infrastructure Analysis**: Process analysis, event logs, storage utilization
 
-### **Enhanced Security Detection**
+### Server-Specific Analysis
+- **Server Role Detection**: Domain Controller, DNS, DHCP, File Services
+- **Active Directory Health**: DC diagnostics, replication status, FSMO roles
+- **Stale Account Detection**: User and computer account cleanup recommendations
+- **Group Policy Analysis**: Domain-wide policy visibility and configuration
 
-**Multi-AV Environment Analysis**: Detects and analyzes 20+ antivirus solutions with proper Windows Defender logic for multi-AV environments.
+### Reporting
+- **Technical Reports**: Markdown format organized by category with recommendations
+- **Raw Data Export**: Complete JSON export for analysis tools and documentation
+- **Risk Assessment**: Flagged items requiring IT attention (HIGH/MEDIUM/LOW/INFO)
+- **IT Management Insights**: Remote access tools, RMM platforms, management gaps
 
-**Remote Access Software Detection (27+ tools)**:
-- TeamViewer, AnyDesk, VNC variants, Chrome Remote Desktop
-- ScreenConnect/ConnectWise Control, BeyondTrust, Jump Desktop
-- LogMeIn, Splashtop, Parsec, GoToMyPC and more
+## Deployment Options
 
-**RMM/Monitoring Platform Detection (19+ platforms)**:  
-- ConnectWise Automate, NinjaRMM, Kaseya VSA, Datto RMM
-- N-able, Atera, Syncro, Pulseway, ManageEngine
-- Security platforms: CrowdStrike, SentinelOne, Huntress
-
-**BitLocker Encryption Analysis**:
-- Drive encryption status per volume
-- Key escrow detection (Azure AD vs Active Directory)
-- Recovery key backup verification
-
-### **Professional Reporting**
-- **Technician Reports**: Clean markdown format with header+detail organization to prevent duplication
-- **Raw Data Export**: Comprehensive JSON with detailed software inventories and investigation points
-- **Risk Assessment**: HIGH/MEDIUM/LOW/INFO risk levels with actionable compliance recommendations
-- **Executive Summary**: At-a-glance security posture with risk counts and priority actions
-- **Investigation Points**: Flagged items requiring security team review (remote access tools, RMM, etc.)
-
-### **Flexible Deployment**
-- **Local Execution**: Full modular architecture with configuration management
-- **Web Execution**: Single-file deployment via PowerShell one-liner for rapid assessment
-- **System Context**: Handles both user and SYSTEM execution contexts appropriately
-- **Enterprise Ready**: Git workflow integration, comprehensive logging, error handling
-
-## Quick Start
-
-### Prerequisites
-- Windows 10/11 workstations (for Windows Server, use WindowsServerAuditor.ps1)
-- PowerShell 5.0 or later
-- Local Administrator rights (recommended for complete analysis)
-
-### Basic Usage
-
+### Local Execution
 ```powershell
-# Clone the repository
+# Clone repository
 git clone https://github.com/jeremyroe/BusinessNetworkAuditor.git
 cd BusinessNetworkAuditor
 
-# Run the audit
+# Run workstation assessment
 .\src\WindowsWorkstationAuditor.ps1
 
-# Custom output location
-.\src\WindowsWorkstationAuditor.ps1 -OutputPath "C:\SecurityAudits"
+# Run server assessment  
+.\src\WindowsServerAuditor.ps1
 
-# Verbose logging
-.\src\WindowsWorkstationAuditor.ps1 -Verbose
+# Custom output location
+.\src\WindowsWorkstationAuditor.ps1 -OutputPath "C:\ITAssessments"
 ```
 
-### Web Execution
-For rapid deployment across multiple systems without cloning the repository:
+### Web Deployment
+For remote assessment without local installation:
 
 ```powershell
-# Build self-contained web version
-.\Build-WebVersion.ps1 -OutputFile "WindowsWorkstationAuditor-Complete.ps1"
+# Workstation assessment
+iex (irm https://your-url/WindowsWorkstationAuditor-Web.ps1)
 
-# Execute directly from GitHub (after pushing the generated file):
-iex (irm https://raw.githubusercontent.com/jeremyroe/BusinessNetworkAuditor/main/WindowsWorkstationAuditor-Complete.ps1)
+# Server assessment
+iex (irm https://your-url/WindowsServerAuditor-Web.ps1)
 
-# Or execute with custom parameters:
-$OutputPath = "C:\RemoteAudits"; iex (irm https://raw.githubusercontent.com/jeremyroe/BusinessNetworkAuditor/main/WindowsWorkstationAuditor-Complete.ps1)
-
-# For testing/development branch:
-iex (irm https://raw.githubusercontent.com/jeremyroe/BusinessNetworkAuditor/develop/WindowsWorkstationAuditor-Complete.ps1)
+# Custom output path
+$OutputPath = "C:\RemoteAssessments"; iex (irm https://your-url/WindowsWorkstationAuditor-Web.ps1)
 ```
 
-**Web Execution Benefits**:
-- Execute directly from GitHub - no separate hosting required
-- Single PowerShell command deployment
-- No local file storage required
-- Embeds all modules and functionality
-- Version control integration
-- Perfect for one-off assessments or emergency response
+## Requirements
+- Windows 10/11 (workstations) or Windows Server 2016+ (servers)
+- PowerShell 5.0 or later
+- Local Administrator rights recommended for complete analysis
 
 ## Output Files
-
-The audit generates several output files in the specified directory:
 
 ```
 output/
@@ -109,185 +75,92 @@ output/
 └── COMPUTERNAME_YYYYMMDD_HHMMSS_raw_data.json
 ```
 
-### Technician Report (Markdown)
-- Executive summary with risk breakdown
-- Prioritized action items (HIGH/MEDIUM priority)
-- Detailed findings organized by category
-- Compliance recommendations
-- Clean, readable format for technical staff
+### Technical Report (Markdown)
+- Findings breakdown by category
+- Recommendations organized by priority
+- Detailed findings with actionable guidance
+- Clean format for technical review
 
 ### Raw Data Export (JSON)
-- Complete audit results with unique IDs
-- Full software inventory with detailed metadata
-- Network configuration details
-- Event log analysis with suspicious activity patterns
-- Structured format for aggregation tools and dashboards
+- Complete assessment results
+- Full software inventory with metadata  
+- Network and system configuration details
+- Structured format for documentation systems
 
 ## Configuration
 
-### Audit Configuration
-Customize the audit behavior using `config/audit-config.json`:
+Customize assessment behavior using configuration files:
+
+**Workstations**: `config/workstation-audit-config.json`
+**Servers**: `config/server-audit-config.json`
+
+### Event Log Analysis Configuration
+
+Configure event log analysis timeframes and performance settings:
 
 ```json
 {
-  "version": "1.3.0",
-  "modules": {
-    "system": { "enabled": true, "timeout": 30 },
-    "security": { "enabled": true, "timeout": 20 },
-    "network": { "enabled": true, "timeout": 30 }
-  },
-  "output": {
-    "formats": ["markdown", "rawjson"],
-    "path": "./output"
+  "settings": {
+    "eventlog": {
+      "analysis_days": 7,
+      "max_events_per_query": 1000,
+      "server_analysis_days": 3,
+      "server_max_events": 500,
+      "domain_controller_analysis_days": 30,
+      "domain_controller_max_events": 500
+    }
   }
 }
 ```
 
-### Output Formats
-- `markdown`: Technician-friendly report with action items
-- `rawjson`: Comprehensive data for aggregation tools
-- `csv`: Legacy tabular format (basic summary)
-- `json`: Legacy simple JSON format (basic summary)
+**Settings:**
+- `analysis_days`: Default analysis window for workstations
+- `server_analysis_days`: Analysis window for member servers
+- `domain_controller_analysis_days`: Analysis window for Domain Controllers
+- `max_events_per_query`: Maximum events to retrieve per query for performance
+
+### Other Configuration Options
+- Software collection preferences
+- Module execution timeouts
+- Output format selection
 
 ## Architecture
 
-### Modular Design
-The tool uses a modular architecture for maintainability and extensibility:
+Modular design for maintainability:
 
 ```
 src/
-├── WindowsWorkstationAuditor.ps1    # Main orchestrator
-├── core/                            # Core functions
-│   ├── Write-LogMessage.ps1         # Logging system
-│   ├── Initialize-Logging.ps1       # Log initialization
-│   ├── Export-MarkdownReport.ps1    # Technician reports
-│   └── Export-RawDataJSON.ps1       # Raw data export
-└── modules/                         # Audit modules
-    ├── Get-SystemInformation.ps1    # System analysis
-    ├── Get-SecuritySettings.ps1     # Security configuration
-    ├── Get-NetworkAnalysis.ps1      # Network assessment
-    └── ...                          # Additional modules
+├── WindowsWorkstationAuditor.ps1    # Workstation orchestrator
+├── WindowsServerAuditor.ps1          # Server orchestrator
+├── core/                             # Core functions
+└── modules/                          # Assessment modules
 ```
 
-### Adding Custom Modules
-1. Create new module in `src/modules/`
-2. Implement function returning standardized result objects
-3. Add module to the orchestrator's module list
-4. Update configuration file if needed
+Each module returns standardized result objects:
 
-### Result Object Format
 ```powershell
 [PSCustomObject]@{
-    Category = "Security"           # Grouping category
-    Item = "Antivirus Status"       # Specific finding
-    Value = "Windows Defender"      # Primary value
-    Details = "Version: 1.0..."     # Additional details
-    RiskLevel = "LOW"              # HIGH/MEDIUM/LOW/INFO
-    Compliance = "NIST: ..."       # Compliance notes
+    Category = "System"               # Grouping category
+    Item = "Operating System"         # Specific finding
+    Value = "Windows Server 2022"     # Primary value
+    Details = "Build: 20348.1547"     # Additional details
+    RiskLevel = "INFO"               # HIGH/MEDIUM/LOW/INFO
+    Recommendation = "..."           # IT management guidance
 }
 ```
 
 
-## Security Considerations
+## Performance Notes
 
-### Data Collection
-- Tool collects system configuration data only
-- No sensitive user data (passwords, files, etc.) is captured
-- All data remains local unless explicitly exported
-- Raw data exports can be sanitized before external sharing
+### Domain Controllers
+- Event log analysis on DCs takes 20-30 minutes due to authentication volume
+- Domain admin login provides better performance than SYSTEM context
 
-### Execution Requirements
-- Administrator privileges recommended for complete analysis
-- Some modules work with standard user rights (limited functionality)
-- Network access not required (offline capable)
-- No external dependencies or internet connectivity needed
-
-### Output Security
-- Audit logs contain system configuration details
-- Raw JSON exports may contain network topology information
-- Consider data classification before sharing reports externally
-- Reports include computer names and network details
-
-## Troubleshooting
-
-### Common Issues
-
-**PowerShell Execution Policy**
-```powershell
-Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
-```
-
-**Module Loading Errors**
-- Ensure all files are present in the correct directory structure
-- Check PowerShell version (5.0+ required)
-- Verify file permissions and unblock downloaded files
-
-**Incomplete Results**
-- Run as Administrator for full access to system information
-- Check Windows Defender settings (may block WMI access)
-- Review audit logs for specific module errors
-
-**Large Output Files**
-- Raw JSON exports can be large on systems with many installed programs
-- Use selective module execution for focused assessments
-- Compress output files for storage or transmission
-
-## Development
-
-### Requirements
-- PowerShell 5.0+
-- Git for version control
-- Text editor with PowerShell syntax support
-
-### Contributing
-1. Fork the repository
-2. Create a feature branch
-3. Implement changes with appropriate testing
-4. Update documentation as needed
-5. Submit a pull request
-
-### Testing
-```powershell
-# Test individual modules
-.\src\modules\Get-SystemInformation.ps1
-
-# Test full audit
-.\src\WindowsWorkstationAuditor.ps1 -Verbose
-
-# Validate output formats
-# Check generated markdown and JSON files
-```
-
-## Recent Enhancements
-
-### Software Detection & Investigation Points
-- **Remote Access Software**: 27+ tools including TeamViewer, AnyDesk, ScreenConnect/ConnectWise Control
-- **RMM/Monitoring Platforms**: 19+ platforms including ConnectWise Automate, NinjaRMM, Kaseya
-- **Risk Classification**: Automatic MEDIUM risk flagging for investigation by security teams
-- **Detailed Metadata**: Install dates, versions, publishers for compliance tracking
-
-### Policy Management Analysis
-- **Domain Group Policy**: Traditional AD-based policy detection and enumeration
-- **MDM/Intune Policies**: Azure AD enrolled device policy analysis with actual setting values
-- **Local Security Policy**: Standalone system policy configuration detection
-- **Clean Reporting**: Filtered technical metadata for readable technician reports
-
-### BitLocker & Encryption
-- **Encryption Status**: Per-volume BitLocker encryption analysis
-- **Key Escrow**: Automatic detection of Azure AD vs Active Directory key backup
-- **Recovery Methods**: PIN, password, TPM, and USB key protector analysis
-- **Compliance Tracking**: Encryption policy adherence and recommendations
-
-### Multi-AV Environment Support
-- **Intelligent Detection**: Proper Windows Defender status in multi-AV environments
-- **20+ AV Products**: Enterprise EDR, traditional AV, and consumer products
-- **Risk Assessment**: Contextual risk levels based on actual protection status
-
-### System Context Handling
-- **User vs SYSTEM**: Appropriate checks for execution context (user profile vs system-wide)
-- **Permission Awareness**: Graceful handling of access denied scenarios
-- **Encoding Fixes**: Resolved Unicode character issues in SYSTEM context
+### Web Versions
+- Self-contained files with embedded configuration
+- No runtime dependencies or external file requirements
+- Workstation version: ~200KB, Server version: ~290KB
 
 ---
 
-**Internal Tool**: This audit tool is designed for internal IT assessment purposes.
+**Internal Use Tool**: Designed for internal IT assessment and infrastructure management.

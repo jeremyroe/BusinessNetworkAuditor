@@ -89,12 +89,48 @@ foreach ($File in $ModuleFiles) {
     }
 }
 
-# Add main execution logic with embedded config
+# Add main execution logic with embedded config from server config file
+Write-Host "Loading server configuration..." -ForegroundColor Yellow
+
+# Read and embed the server configuration
+$ServerConfigFile = "config\server-audit-config.json"
+if (Test-Path $ServerConfigFile) {
+    $ServerConfig = Get-Content $ServerConfigFile -Raw | ConvertFrom-Json
+    Write-Host "  Server config loaded: v$($ServerConfig.version)" -ForegroundColor Gray
+} else {
+    Write-Host "  Warning: Server config file not found, using defaults" -ForegroundColor Red
+    $ServerConfig = @{
+        version = "1.3.0"
+        settings = @{
+            eventlog = @{
+                analysis_days = 3
+                max_events_per_query = 500
+            }
+        }
+    }
+}
+
 $MainLogic = @"
 
-# Default configuration for web execution
+# Configuration embedded from server-audit-config.json at build time
 `$Config = @{
-    version = "1.3.0"
+    version = "$($ServerConfig.version)"
+    settings = @{
+        collect_ad_details = `$$($ServerConfig.settings.collect_ad_details)
+        collect_dhcp_reservations = `$$($ServerConfig.settings.collect_dhcp_reservations)
+        collect_dns_records = `$$($ServerConfig.settings.collect_dns_records)
+        collect_iis_bindings = `$$($ServerConfig.settings.collect_iis_bindings)
+        max_ad_users = $($ServerConfig.settings.max_ad_users)
+        max_ad_groups = $($ServerConfig.settings.max_ad_groups)
+        eventlog = @{
+            analysis_days = $($ServerConfig.settings.eventlog.analysis_days)
+            max_events_per_query = $($ServerConfig.settings.eventlog.max_events_per_query)
+            workstation_analysis_days = $($ServerConfig.settings.eventlog.workstation_analysis_days)
+            workstation_max_events = $($ServerConfig.settings.eventlog.workstation_max_events)
+            domain_controller_analysis_days = $($ServerConfig.settings.eventlog.domain_controller_analysis_days)
+            domain_controller_max_events = $($ServerConfig.settings.eventlog.domain_controller_max_events)
+        }
+    }
     output = @{
         formats = @("markdown", "rawjson")
         path = `$OutputPath

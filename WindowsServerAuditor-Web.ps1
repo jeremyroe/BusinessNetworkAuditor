@@ -762,6 +762,54 @@ function Get-UserAccountAnalysis {
             Write-LogMessage "WARN" "Could not check current user admin status: $($_.Exception.Message)" "USERS"
         }
         
+        # Detect if we're on a Domain Controller
+        $IsDomainController = $false
+        try {
+            $OSInfo = Get-CimInstance -ClassName Win32_OperatingSystem -ErrorAction SilentlyContinue
+            $IsDomainController = $OSInfo.ProductType -eq 2  # ProductType: 1=Workstation, 2=DC, 3=Server
+            Write-LogMessage "INFO" "Domain Controller detected: $IsDomainController" "USERS"
+        }
+        catch {
+            Write-LogMessage "WARN" "Could not determine system type for DC detection" "USERS"
+        }
+        
+        # Use different methods based on whether we're on a Domain Controller
+        if ($IsDomainController) {
+            Write-LogMessage "INFO" "Using Active Directory methods for Domain Controller..." "USERS"
+            try {
+                # Try to import AD module
+                Import-Module ActiveDirectory -ErrorAction SilentlyContinue
+                
+                # Get Domain Admins and Enterprise Admins
+                $DomainAdmins = @()
+                $EnterpriseAdmins = @()
+                
+                try {
+                    $DomainAdmins = Get-ADGroupMember "Domain Admins" -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Name
+                } catch {
+                    Write-LogMessage "WARN" "Could not get Domain Admins: $($_.Exception.Message)" "USERS"
+                }
+                
+                try {
+                    $EnterpriseAdmins = Get-ADGroupMember "Enterprise Admins" -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Name
+                } catch {
+                    Write-LogMessage "WARN" "Could not get Enterprise Admins: $($_.Exception.Message)" "USERS"
+                }
+                
+                # Combine and deduplicate
+                $LocalAdmins = @($DomainAdmins) + @($EnterpriseAdmins) | Sort-Object -Unique | Where-Object { $_ -ne $null }
+                Write-LogMessage "INFO" "Found $($DomainAdmins.Count) Domain Admins, $($EnterpriseAdmins.Count) Enterprise Admins" "USERS"
+            }
+            catch {
+                Write-LogMessage "WARN" "AD module not available, falling back to local group detection: $($_.Exception.Message)" "USERS"
+                $IsDomainController = $false  # Fall back to local methods
+            }
+        }
+        
+        # Use local methods for non-DCs or if AD methods failed
+        if (-not $IsDomainController -or $LocalAdmins.Count -eq 0) {
+            Write-LogMessage "INFO" "Using local group detection methods..." "USERS"
+        
         # Method 1: Try Get-LocalGroupMember (best for Azure AD)
         try {
             Write-LogMessage "INFO" "Attempting Get-LocalGroupMember..." "USERS"
@@ -819,10 +867,11 @@ function Get-UserAccountAnalysis {
             }
         }
         
-        # Method 3: If still no admins but current user is admin, add them
-        if ($LocalAdmins.Count -eq 0 -and $IsCurrentUserAdmin) {
-            Write-LogMessage "INFO" "Adding current user as admin since detection failed" "USERS"
-            $LocalAdmins = @($env:USERNAME)
+            # Method 3: If still no admins but current user is admin, add them
+            if ($LocalAdmins.Count -eq 0 -and $IsCurrentUserAdmin) {
+                Write-LogMessage "INFO" "Adding current user as admin since detection failed" "USERS"
+                $LocalAdmins = @($env:USERNAME)
+            }
         }
         
         $Results = @()
@@ -839,32 +888,57 @@ function Get-UserAccountAnalysis {
             Recommendation = if ($AdminCount -gt 3) { "Limit administrative access" } else { "" }
         }
         
-        # Guest Account Status (with error handling for DCs/SYSTEM account)
-        try {
-            $LocalUsers = Get-CimInstance -ClassName Win32_UserAccount -Filter "LocalAccount=True" -ErrorAction SilentlyContinue
-            if ($LocalUsers) {
-                $GuestAccount = $LocalUsers | Where-Object { $_.Name -eq "Guest" }
-                if ($GuestAccount) {
+        # Account Security Analysis (different for DCs vs regular systems)
+        if ($IsDomainController) {
+            # For Domain Controllers: Check for disabled domain accounts
+            try {
+                if (Get-Module -Name ActiveDirectory -ListAvailable) {
+                    $DisabledUsers = Get-ADUser -Filter {Enabled -eq $false} -ErrorAction SilentlyContinue | Measure-Object | Select-Object -ExpandProperty Count
                     $Results += [PSCustomObject]@{
                         Category = "Users"
-                        Item = "Guest Account"
-                        Value = if ($GuestAccount.Disabled) { "Disabled" } else { "Enabled" }
-                        Details = "Guest account status"
-                        RiskLevel = if ($GuestAccount.Disabled) { "LOW" } else { "HIGH" }
-                        Recommendation = if (-not $GuestAccount.Disabled) { "Disable guest account" } else { "" }
+                        Item = "Disabled Domain Accounts"
+                        Value = $DisabledUsers
+                        Details = "Disabled user accounts in Active Directory"
+                        RiskLevel = if ($DisabledUsers -gt 10) { "MEDIUM" } else { "LOW" }
+                        Recommendation = if ($DisabledUsers -gt 10) { "Review and clean up disabled accounts" } else { "" }
+                    }
+                    Write-LogMessage "INFO" "Found $DisabledUsers disabled domain accounts" "USERS"
+                } else {
+                    Write-LogMessage "INFO" "Active Directory module not available for disabled account analysis" "USERS"
+                }
+            }
+            catch {
+                Write-LogMessage "WARN" "Could not check disabled domain accounts: $($_.Exception.Message)" "USERS"
+            }
+        } else {
+            # For regular systems: Check Guest Account Status
+            try {
+                $LocalUsers = Get-CimInstance -ClassName Win32_UserAccount -Filter "LocalAccount=True" -ErrorAction SilentlyContinue
+                if ($LocalUsers) {
+                    $GuestAccount = $LocalUsers | Where-Object { $_.Name -eq "Guest" }
+                    if ($GuestAccount) {
+                        $Results += [PSCustomObject]@{
+                            Category = "Users"
+                            Item = "Guest Account"
+                            Value = if ($GuestAccount.Disabled) { "Disabled" } else { "Enabled" }
+                            Details = "Guest account status"
+                            RiskLevel = if ($GuestAccount.Disabled) { "LOW" } else { "HIGH" }
+                            Recommendation = if (-not $GuestAccount.Disabled) { "Disable guest account" } else { "" }
+                        }
+                    } else {
+                        Write-LogMessage "INFO" "No Guest account found in local users" "USERS"
                     }
                 } else {
-                    Write-LogMessage "INFO" "No Guest account found in local users" "USERS"
+                    Write-LogMessage "WARN" "Unable to enumerate local users" "USERS"
                 }
-            } else {
-                Write-LogMessage "WARN" "Unable to enumerate local users (Domain Controller/SYSTEM limitations)" "USERS"
             }
-        }
-        catch {
-            Write-LogMessage "WARN" "Could not check local users for Guest account: $($_.Exception.Message)" "USERS"
+            catch {
+                Write-LogMessage "WARN" "Could not check local users for Guest account: $($_.Exception.Message)" "USERS"
+            }
         }
         
         Write-LogMessage "SUCCESS" "User account analysis completed - Found $AdminCount administrators" "USERS"
+        Write-LogMessage "INFO" "Returning $($Results.Count) user account results" "USERS"
         return $Results
     }
     catch {
@@ -2841,7 +2915,7 @@ function Get-PrinterAnalysis {
         
         # Get installed printers
         try {
-            $Printers = Get-CimInstance -ClassName Win32_Printer
+            $Printers = Get-CimInstance -ClassName Win32_Printer -ErrorAction SilentlyContinue
             $PrinterCount = if ($Printers) { $Printers.Count } else { 0 }
             
             if ($PrinterCount -eq 0) {
@@ -2940,7 +3014,7 @@ function Get-PrinterAnalysis {
         
         # Get printer drivers
         try {
-            $PrinterDrivers = Get-CimInstance -ClassName Win32_PrinterDriver
+            $PrinterDrivers = Get-CimInstance -ClassName Win32_PrinterDriver -ErrorAction SilentlyContinue
             $DriverCount = $PrinterDrivers.Count
             
             if ($DriverCount -gt 0) {
@@ -2964,7 +3038,7 @@ function Get-PrinterAnalysis {
         
         # Get printer ports (network connections)
         try {
-            $PrinterPorts = Get-CimInstance -ClassName Win32_TCPIPPrinterPort
+            $PrinterPorts = Get-CimInstance -ClassName Win32_TCPIPPrinterPort -ErrorAction SilentlyContinue
             if ($PrinterPorts) {
                 $NetworkPortCount = $PrinterPorts.Count
                 
@@ -2998,7 +3072,7 @@ function Get-PrinterAnalysis {
         
         # Check print job queue
         try {
-            $PrintJobs = Get-CimInstance -ClassName Win32_PrintJob
+            $PrintJobs = Get-CimInstance -ClassName Win32_PrintJob -ErrorAction SilentlyContinue
             $JobCount = $PrintJobs.Count
             
             if ($JobCount -gt 0) {
@@ -5975,9 +6049,25 @@ function Get-FileShareAnalysis {
         })
     }
 }
-# Default configuration for web execution
+# Configuration embedded from server-audit-config.json at build time
 $Config = @{
     version = "1.3.0"
+    settings = @{
+        collect_ad_details = $True
+        collect_dhcp_reservations = $True
+        collect_dns_records = $False
+        collect_iis_bindings = $True
+        max_ad_users = 1000
+        max_ad_groups = 500
+        eventlog = @{
+            analysis_days = 3
+            max_events_per_query = 500
+            workstation_analysis_days = 7
+            workstation_max_events = 1000
+            domain_controller_analysis_days = 30
+            domain_controller_max_events = 500
+        }
+    }
     output = @{
         formats = @("markdown", "rawjson")
         path = $OutputPath

@@ -50,7 +50,7 @@ function Get-PrinterAnalysis {
         
         # Get installed printers
         try {
-            $Printers = Get-CimInstance -ClassName Win32_Printer
+            $Printers = Get-CimInstance -ClassName Win32_Printer -ErrorAction SilentlyContinue
             $PrinterCount = if ($Printers) { $Printers.Count } else { 0 }
             
             if ($PrinterCount -eq 0) {
@@ -149,7 +149,7 @@ function Get-PrinterAnalysis {
         
         # Get printer drivers
         try {
-            $PrinterDrivers = Get-CimInstance -ClassName Win32_PrinterDriver
+            $PrinterDrivers = Get-CimInstance -ClassName Win32_PrinterDriver -ErrorAction SilentlyContinue
             $DriverCount = $PrinterDrivers.Count
             
             if ($DriverCount -gt 0) {
@@ -173,7 +173,7 @@ function Get-PrinterAnalysis {
         
         # Get printer ports (network connections)
         try {
-            $PrinterPorts = Get-CimInstance -ClassName Win32_TCPIPPrinterPort
+            $PrinterPorts = Get-CimInstance -ClassName Win32_TCPIPPrinterPort -ErrorAction SilentlyContinue
             if ($PrinterPorts) {
                 $NetworkPortCount = $PrinterPorts.Count
                 
@@ -207,7 +207,7 @@ function Get-PrinterAnalysis {
         
         # Check print job queue
         try {
-            $PrintJobs = Get-CimInstance -ClassName Win32_PrintJob
+            $PrintJobs = Get-CimInstance -ClassName Win32_PrintJob -ErrorAction SilentlyContinue
             $JobCount = $PrintJobs.Count
             
             if ($JobCount -gt 0) {

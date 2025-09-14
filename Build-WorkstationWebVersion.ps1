@@ -82,12 +82,45 @@ foreach ($File in $ModuleFiles) {
     }
 }
 
-# Add main execution logic with embedded config
+# Add main execution logic with embedded config from workstation config file
+Write-Host "Loading workstation configuration..." -ForegroundColor Yellow
+
+# Read and embed the workstation configuration
+$WorkstationConfigFile = "config\workstation-audit-config.json"
+if (Test-Path $WorkstationConfigFile) {
+    $WorkstationConfig = Get-Content $WorkstationConfigFile -Raw | ConvertFrom-Json
+    Write-Host "  Workstation config loaded: v$($WorkstationConfig.version)" -ForegroundColor Gray
+} else {
+    Write-Host "  Warning: Workstation config file not found, using defaults" -ForegroundColor Red
+    $WorkstationConfig = @{
+        version = "1.3.0"
+        settings = @{
+            eventlog = @{
+                analysis_days = 7
+                max_events_per_query = 1000
+            }
+        }
+    }
+}
+
 $MainLogic = @"
 
-# Default configuration for web execution
+# Configuration embedded from workstation-audit-config.json at build time
 `$Config = @{
-    version = "1.3.0"
+    version = "$($WorkstationConfig.version)"
+    settings = @{
+        collect_browser_data = `$$($WorkstationConfig.settings.collect_browser_data)
+        collect_startup_programs = `$$($WorkstationConfig.settings.collect_startup_programs)
+        collect_user_folders = `$$($WorkstationConfig.settings.collect_user_folders)
+        max_processes = $($WorkstationConfig.settings.max_processes)
+        max_services = $($WorkstationConfig.settings.max_services)
+        eventlog = @{
+            analysis_days = $($WorkstationConfig.settings.eventlog.analysis_days)
+            max_events_per_query = $($WorkstationConfig.settings.eventlog.max_events_per_query)
+            server_analysis_days = $($WorkstationConfig.settings.eventlog.server_analysis_days)
+            server_max_events = $($WorkstationConfig.settings.eventlog.server_max_events)
+        }
+    }
     output = @{
         formats = @("markdown", "rawjson")
         path = `$OutputPath
