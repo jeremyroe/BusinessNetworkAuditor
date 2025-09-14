@@ -110,13 +110,14 @@ try {
     `$AllResults = @()
     `$AuditModuleNames = @(
         # Core system modules
-        "Get-SystemInformation", "Get-UserAccountAnalysis", "Get-SoftwareInventory",
-        "Get-SecuritySettings", "Get-PatchStatus", "Get-PolicyAnalysis",
-        "Get-DiskSpaceAnalysis", "Get-MemoryAnalysis", "Get-PrinterAnalysis", 
-        "Get-NetworkAnalysis", "Get-ProcessAnalysis", "Get-EventLogAnalysis",
+        "Get-SystemInformation", "Get-ServerRoleAnalysis", "Get-UserAccountAnalysis", 
+        "Get-SoftwareInventory", "Get-SecuritySettings", "Get-PatchStatus", 
+        "Get-PolicyAnalysis", "Get-DiskSpaceAnalysis", "Get-MemoryAnalysis", 
+        "Get-PrinterAnalysis", "Get-NetworkAnalysis", "Get-ProcessAnalysis", 
+        "Get-EventLogAnalysis",
         # Server-specific modules
-        "Get-ServerRoleAnalysis", "Get-ActiveDirectoryAnalysis", "Get-DHCPAnalysis",
-        "Get-DNSAnalysis", "Get-FileShareAnalysis"
+        "Get-ActiveDirectoryAnalysis", "Get-DHCPAnalysis", "Get-DNSAnalysis", 
+        "Get-FileShareAnalysis"
     )
     
     foreach (`$ModuleName in `$AuditModuleNames) {

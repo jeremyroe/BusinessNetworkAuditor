@@ -825,12 +825,9 @@ function Get-UserAccountAnalysis {
             $LocalAdmins = @($env:USERNAME)
         }
         
-        # Get local users for Guest account check
-        $LocalUsers = Get-CimInstance -ClassName Win32_UserAccount -Filter "LocalAccount=True"
-        
         $Results = @()
         
-        # Local Administrator Count
+        # Local Administrator Count (always add this result)
         $AdminCount = $LocalAdmins.Count
         Write-LogMessage "SUCCESS" "Administrator count: $AdminCount" "USERS"
         $Results += [PSCustomObject]@{
@@ -842,17 +839,29 @@ function Get-UserAccountAnalysis {
             Recommendation = if ($AdminCount -gt 3) { "Limit administrative access" } else { "" }
         }
         
-        # Guest Account Status
-        $GuestAccount = $LocalUsers | Where-Object { $_.Name -eq "Guest" }
-        if ($GuestAccount) {
-            $Results += [PSCustomObject]@{
-                Category = "Users"
-                Item = "Guest Account"
-                Value = if ($GuestAccount.Disabled) { "Disabled" } else { "Enabled" }
-                Details = "Guest account status"
-                RiskLevel = if ($GuestAccount.Disabled) { "LOW" } else { "HIGH" }
-                Recommendation = if (-not $GuestAccount.Disabled) { "Disable guest account" } else { "" }
+        # Guest Account Status (with error handling for DCs/SYSTEM account)
+        try {
+            $LocalUsers = Get-CimInstance -ClassName Win32_UserAccount -Filter "LocalAccount=True" -ErrorAction SilentlyContinue
+            if ($LocalUsers) {
+                $GuestAccount = $LocalUsers | Where-Object { $_.Name -eq "Guest" }
+                if ($GuestAccount) {
+                    $Results += [PSCustomObject]@{
+                        Category = "Users"
+                        Item = "Guest Account"
+                        Value = if ($GuestAccount.Disabled) { "Disabled" } else { "Enabled" }
+                        Details = "Guest account status"
+                        RiskLevel = if ($GuestAccount.Disabled) { "LOW" } else { "HIGH" }
+                        Recommendation = if (-not $GuestAccount.Disabled) { "Disable guest account" } else { "" }
+                    }
+                } else {
+                    Write-LogMessage "INFO" "No Guest account found in local users" "USERS"
+                }
+            } else {
+                Write-LogMessage "WARN" "Unable to enumerate local users (Domain Controller/SYSTEM limitations)" "USERS"
             }
+        }
+        catch {
+            Write-LogMessage "WARN" "Could not check local users for Guest account: $($_.Exception.Message)" "USERS"
         }
         
         Write-LogMessage "SUCCESS" "User account analysis completed - Found $AdminCount administrators" "USERS"
@@ -5984,13 +5993,14 @@ try {
     $AllResults = @()
     $AuditModuleNames = @(
         # Core system modules
-        "Get-SystemInformation", "Get-UserAccountAnalysis", "Get-SoftwareInventory",
-        "Get-SecuritySettings", "Get-PatchStatus", "Get-PolicyAnalysis",
-        "Get-DiskSpaceAnalysis", "Get-MemoryAnalysis", "Get-PrinterAnalysis", 
-        "Get-NetworkAnalysis", "Get-ProcessAnalysis", "Get-EventLogAnalysis",
+        "Get-SystemInformation", "Get-ServerRoleAnalysis", "Get-UserAccountAnalysis", 
+        "Get-SoftwareInventory", "Get-SecuritySettings", "Get-PatchStatus", 
+        "Get-PolicyAnalysis", "Get-DiskSpaceAnalysis", "Get-MemoryAnalysis", 
+        "Get-PrinterAnalysis", "Get-NetworkAnalysis", "Get-ProcessAnalysis", 
+        "Get-EventLogAnalysis",
         # Server-specific modules
-        "Get-ServerRoleAnalysis", "Get-ActiveDirectoryAnalysis", "Get-DHCPAnalysis",
-        "Get-DNSAnalysis", "Get-FileShareAnalysis"
+        "Get-ActiveDirectoryAnalysis", "Get-DHCPAnalysis", "Get-DNSAnalysis", 
+        "Get-FileShareAnalysis"
     )
     
     foreach ($ModuleName in $AuditModuleNames) {
