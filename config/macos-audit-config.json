@@ -1,0 +1,45 @@
+{
+  "version": "1.0.0",
+  "description": "macOS Workstation IT Assessment Configuration",
+  "analysis_settings": {
+    "analysis_days": 7,
+    "max_events_per_query": 1000,
+    "enable_deep_scan": false,
+    "scan_timeout_seconds": 300
+  },
+  "security_settings": {
+    "check_third_party_av": true,
+    "check_remote_access": true,
+    "check_privacy_settings": true,
+    "check_firewall_config": true
+  },
+  "software_settings": {
+    "scan_applications": true,
+    "check_package_managers": true,
+    "analyze_browser_security": true,
+    "large_file_threshold_gb": 1
+  },
+  "network_settings": {
+    "check_wifi_security": true,
+    "analyze_dns_config": true,
+    "check_vpn_config": true,
+    "scan_listening_ports": true
+  },
+  "system_settings": {
+    "check_disk_space": true,
+    "analyze_memory_usage": true,
+    "check_process_list": true,
+    "verify_system_integrity": true
+  },
+  "reporting_settings": {
+    "generate_markdown": true,
+    "generate_json": true,
+    "include_raw_data": true,
+    "risk_level_colors": {
+      "HIGH": "#dc3545",
+      "MEDIUM": "#fd7e14", 
+      "LOW": "#ffc107",
+      "INFO": "#28a745"
+    }
+  }
+}

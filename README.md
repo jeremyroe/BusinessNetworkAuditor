@@ -92,6 +92,8 @@ copy output\*_raw_data.json import\
 - **Systems Overview**: Individual system grades (A-F) by category
 - **Client-Ready Format**: Professional styling optimized for consulting deliverables
 
+**Example Output:** See `examples/Example-Client-IT-Assessment-Report-20240316.html` for a sample aggregated report with sanitized data.
+
 ## Requirements
 - Windows 10/11 (workstations) or Windows Server 2016+ (servers)
 - PowerShell 5.0 or later
