@@ -102,13 +102,13 @@
 
 ### Windows Defender Status
 - **Antivirus Protection:** Enabled
-- **Real-time Protection:** Disabled ⚠️
+- **Real-time Protection:** Disabled 
 - **Cloud Protection:** Enabled
 - **Sample Submission:** Enabled
 - **Last Update:** 2025-09-24 06:00:15
 
 ### Firewall Configuration
-- **Domain Network:** Disabled ⚠️
+- **Domain Network:** Disabled 
 - **Private Network:** Enabled
 - **Public Network:** Enabled
 - **Windows Defender Firewall:** Active
@@ -147,7 +147,7 @@
 ### Memory Analysis
 - **Physical Memory:** 16.00 GB
 - **Available Memory:** 2.15 GB (13.4%)
-- **Memory Usage:** 87% ⚠️
+- **Memory Usage:** 87% 
 - **Virtual Memory:** 18.7 GB (77% used)
 - **Page File:** C:\pagefile.sys (2.4 GB)
 
@@ -159,7 +159,7 @@
 5. **dwm.exe:** 412 MB (2.6%)
 
 ### Disk Usage Analysis
-- **System Drive (C:):** 89% used ⚠️
+- **System Drive (C:):** 89% used 
   - Total: 500 GB
   - Used: 445 GB
   - Free: 55 GB
@@ -177,13 +177,13 @@
 
 ### Windows Update Configuration
 - **Update Source:** Windows Update (Internet)
-- **Automatic Updates:** Manual ⚠️
+- **Automatic Updates:** Manual 
 - **Last Check:** 2025-09-20 (4 days ago)
 - **Pending Reboot:** Yes
 
 ### Available Updates
-- **Security Updates:** 8 available ⚠️
-- **Critical Updates:** 4 available ⚠️
+- **Security Updates:** 8 available 
+- **Critical Updates:** 4 available 
 - **Important Updates:** 3 available
 - **Optional Updates:** 2 available
 
