@@ -7219,7 +7219,7 @@ function Import-AuditModules {
     #>
     
     # Load configuration
-    $ConfigFile = Join-Path $ConfigPath "audit-config.json"
+    $ConfigFile = Join-Path $ConfigPath "workstation-audit-config.json"
     if (Test-Path $ConfigFile) {
         try {
             $Config = Get-Content $ConfigFile | ConvertFrom-Json
@@ -7479,7 +7479,7 @@ function Start-ModularAudit {
         }
         
         # Load configuration for export
-        $ConfigFile = Join-Path $ConfigPath "audit-config.json"
+        $ConfigFile = Join-Path $ConfigPath "workstation-audit-config.json"
         $Config = $null
         if (Test-Path $ConfigFile) {
             try {
