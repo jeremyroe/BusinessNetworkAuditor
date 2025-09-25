@@ -2,12 +2,12 @@
 
 **Computer:** ACME-WS-001
 **Generated:** 2025-09-24 14:30:15
-**Tool Version:** Windows Workstation Auditor v1.3.0
+**Tool Version:** WindowsWorkstationAuditor v1.3.0
 
 ## Executive Summary
 
 | Risk Level | Count | Priority |
-|------------|-------|----------|
+|------------|--------|----------|
 | HIGH | 3 | Immediate Action Required |
 | MEDIUM | 8 | Review and Plan Remediation |
 | LOW | 12 | Monitor and Maintain |
@@ -63,212 +63,41 @@
   - Details: Multiple network printers from various manufacturers
   - Recommendation: Review printer inventory and remove unused printers
 
-## System Configuration Details
+## Additional Information
 
-- **Operating System:** Windows 11 Pro (Build 22631.4317)
-- **Computer:** ACME-WS-001.acme.local
-- **Domain:** ACME.LOCAL (Domain Joined)
-- **Hardware:** Dell OptiPlex 7090, Intel Core i7-11700, 16GB RAM, 500GB SSD
-- **Last Boot:** 2025-09-23 08:15:22 (1 days ago)
-- **System Uptime:** 1 day, 6 hours, 15 minutes
+**[LOW] System - Last Boot Time:** 1 days ago
+- Details: System last restarted on 2025-09-23 08:15:22
+- Recommendation: Regular restarts help apply updates and clear system resources
 
-## User Account Analysis
+**[LOW] Network - Domain Membership:** ACME.LOCAL
+- Details: System is joined to the ACME.LOCAL domain
+- Recommendation: Verify domain membership and authentication is functioning properly
 
-- **Total Users:** 12 accounts (3 active, 9 disabled)
-- **Administrator Accounts:** 3 accounts
-  - ACME\john.smith (Active - last login: 2025-09-24)
-  - ACME\admin.user (Active - last login: 2025-09-22)
-  - Administrator (Disabled - last login: Never)
-- **Standard Users:** 9 accounts (6 disabled)
-- **Password Policy:** Domain policy enforced
-- **Account Lockout:** 5 attempts, 30-minute lockout
+**[INFO] Hardware - System Model:** Dell OptiPlex 7090
+- Details: Intel Core i7-11700, 16GB RAM, 500GB SSD
+- Recommendation: Monitor hardware performance and plan for lifecycle replacement
 
-## Software Inventory
+**[INFO] Software - Total Installed:** 127 applications
+- Details: 23 Microsoft products, 104 third-party applications
+- Recommendation: Review software inventory and remove unused applications
 
-### Critical Applications
-- **Web Browsers:** Google Chrome 117.0.5938.132, Microsoft Edge 117.0.2045.47
-- **Office Suite:** Microsoft Office 365 (Current Channel)
-- **Security Software:** Windows Defender (Built-in)
-- **Remote Access:** TeamViewer 15.42.9, Chrome Remote Desktop
-- **Development Tools:** Visual Studio Code 1.82.2
-
-### Installed Software Summary
-- **Total Installed:** 127 applications
-- **Microsoft Products:** 23 applications
-- **Third-party Software:** 104 applications
-- **Recently Installed:** 5 applications (last 30 days)
-
-## Security Configuration
-
-### Windows Defender Status
-- **Antivirus Protection:** Enabled
-- **Real-time Protection:** Disabled 
-- **Cloud Protection:** Enabled
-- **Sample Submission:** Enabled
-- **Last Update:** 2025-09-24 06:00:15
-
-### Firewall Configuration
-- **Domain Network:** Disabled 
-- **Private Network:** Enabled
-- **Public Network:** Enabled
-- **Windows Defender Firewall:** Active
-
-### BitLocker Status
-- **C: Drive:** Not Encrypted
-- **Recovery Key:** Not backed up
-- **TPM Status:** Available (Version 2.0)
-
-## Network Configuration
-
-### Network Adapters
-- **Ethernet:** Intel I219-LM (Connected - 1 Gbps)
-  - IP: 192.168.1.100/24
-  - Gateway: 192.168.1.1
-  - DNS: 192.168.1.10, 192.168.1.11
-- **Wi-Fi:** Intel AX201 (Disabled)
-
-### Network Shares
-- **Mapped Drives:** 2 drives
-  - H: \\fileserver\home\john.smith
-  - S: \\fileserver\shared
-- **Shared Folders:** None configured
-
-### Active Network Connections
-- **Established Connections:** 23 connections
-- **Listening Ports:** 5 services
-  - 135/tcp (RPC Endpoint Mapper)
-  - 139/tcp (NetBIOS Session Service)
-  - 445/tcp (SMB)
-  - 3389/tcp (Remote Desktop)
-  - 5040/tcp (Unknown Service)
-
-## System Performance
-
-### Memory Analysis
-- **Physical Memory:** 16.00 GB
-- **Available Memory:** 2.15 GB (13.4%)
-- **Memory Usage:** 87% 
-- **Virtual Memory:** 18.7 GB (77% used)
-- **Page File:** C:\pagefile.sys (2.4 GB)
-
-### Top Memory Processes
-1. **firefox.exe:** 2.1 GB (13.1%)
-2. **chrome.exe:** 1.8 GB (11.3%)
-3. **teams.exe:** 845 MB (5.3%)
-4. **outlook.exe:** 623 MB (3.9%)
-5. **dwm.exe:** 412 MB (2.6%)
-
-### Disk Usage Analysis
-- **System Drive (C:):** 89% used 
-  - Total: 500 GB
-  - Used: 445 GB
-  - Free: 55 GB
-- **Largest Folders:**
-  - C:\Users: 125 GB
-  - C:\Program Files: 89 GB
-  - C:\Windows: 67 GB
-
-### Running Processes
-- **Total Processes:** 247 processes
-- **System Processes:** 45 processes
-- **User Processes:** 202 processes
-
-## Patch Management Status
-
-### Windows Update Configuration
-- **Update Source:** Windows Update (Internet)
-- **Automatic Updates:** Manual 
-- **Last Check:** 2025-09-20 (4 days ago)
-- **Pending Reboot:** Yes
-
-### Available Updates
-- **Security Updates:** 8 available 
-- **Critical Updates:** 4 available 
-- **Important Updates:** 3 available
-- **Optional Updates:** 2 available
-
-### Update History (Last 30 Days)
-- **Successfully Installed:** 12 updates
-- **Failed Installations:** 1 update
-- **Last Successful Update:** 2025-09-15
-
-## Group Policy Analysis
-
-### Applied Policies
-- **Computer Policies:** 47 policies applied
-- **User Policies:** 23 policies applied
-- **Domain:** ACME.LOCAL
-
-### Key Policy Settings
-- **Password Policy:** Domain enforced
-- **Audit Policy:** Advanced audit enabled
-- **Security Options:** 12 settings configured
-- **User Rights:** Standard domain user rights
-
-## Printer Configuration
-
-### Installed Printers
-- **Network Printers:** 8 printers
-  - HP LaserJet P4015 (\\printserver\HP-P4015-Floor2)
-  - Canon ImageRunner (\\printserver\Canon-IR-Reception)
-  - Brother HL-L2350DW (\\printserver\Brother-Accounting)
-  - Xerox WorkCentre (\\printserver\Xerox-Conference)
-  - HP Color LaserJet (\\printserver\HP-Color-Marketing)
-  - Epson WorkForce (\\printserver\Epson-Graphics)
-  - Canon PIXMA (\\printserver\Canon-Labels)
-  - Samsung ML-2010 (\\printserver\Samsung-Backup)
-
-### Print Services Status
-- **Print Spooler:** Running
-- **Print Queue:** 0 jobs pending
-- **Default Printer:** HP LaserJet P4015
-
-## Event Log Analysis
-
-### Security Events (Last 7 Days)
-- **Logon Events:** 127 events
-  - Successful: 125 events
-  - Failed: 2 events
-- **Account Management:** 5 events
-- **System Events:** 23 events
-
-### System Events (Last 7 Days)
-- **Critical Events:** 0 events
-- **Error Events:** 3 events
-- **Warning Events:** 12 events
-- **Information Events:** 456 events
-
-### Application Events (Last 7 Days)
-- **Error Events:** 8 events
-- **Warning Events:** 34 events
-- **Information Events:** 234 events
-
-## Recommendations Summary
+## Recommendations
 
 ### Immediate Actions (HIGH Priority)
-1. Install all available security and critical updates
-2. Enable Windows Defender real-time protection
-3. Enable Windows Firewall for domain network
-4. Configure automatic Windows Update installation
+1. **Install critical security updates** - Affects 1 item: 15 pending updates
+2. **Enable Windows Defender real-time protection** - Affects 1 item: Real-time protection disabled
+3. **Enable Windows Firewall for domain network** - Affects 1 item: Domain firewall disabled
 
 ### Review and Planning (MEDIUM Priority)
-1. Review and reduce local administrator accounts
-2. Evaluate necessity of remote access software
-3. Review network service configuration and open ports
-4. Implement disk cleanup procedures
-5. Monitor memory usage and consider hardware upgrade
-6. Strengthen local password policy requirements
-7. Remove unused network printers
+4. **Review administrator accounts** - Affects 1 item: 3 local administrators
+5. **Evaluate remote access software** - Affects 1 item: 2 applications detected
+6. **Review network service configuration** - Affects 1 item: 5 open ports
+7. **Address storage capacity** - Affects 1 item: C: drive 89% full
+8. **Monitor memory utilization** - Affects 1 item: 87% RAM usage
+9. **Configure automatic updates** - Affects 1 item: Manual update configuration
+10. **Strengthen password policy** - Affects 1 item: Weak policy requirements
+11. **Optimize printer configuration** - Affects 1 item: 8 network printers
 
-### Monitoring (LOW Priority)
-1. Monitor system performance trends
-2. Review event logs for recurring issues
-3. Validate BitLocker encryption implementation
-4. Optimize startup programs and services
-
-## Data Export Information
-
-- **Report Generated:** 2025-09-24 14:30:15
-- **JSON Export:** ACME-WS-001_20250924_143015_raw_data.json
-- **Log File:** ACME-WS-001_20250924_143015_audit.log
-- **Assessment Duration:** 3 minutes, 47 seconds
+**Assessment Duration:** 3 minutes, 47 seconds
+**Report Generated:** 2025-09-24 14:30:15
+**Data Export:** ACME-WS-001_20250924_143015_raw_data.json

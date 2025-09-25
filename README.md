@@ -132,17 +132,25 @@ copy output\*_raw_data.json import\
 
 ## Example Reports
 
-The `examples/` directory contains sample reports demonstrating individual system audit outputs:
+The `examples/` directory contains sample reports demonstrating actual tool output formats:
 
 ### Individual System Reports
-- **[Windows Workstation Example](examples/Windows-Workstation-Example-Report.md)** - Complete workstation audit with security findings and recommendations
-- **[Windows Server Example](examples/Windows-Server-Example-Report.md)** - Domain controller audit with Active Directory health analysis
-- **[macOS Workstation Example](examples/macOS-Workstation-Example-Report.md)** - Mac system audit with FileVault, XProtect, and security configuration analysis
+- **[Windows Workstation Example](examples/Windows-Workstation-Example-Report.md)** - Realistic workstation audit report matching WindowsWorkstationAuditor output format
+- **[Windows Server Example](examples/Windows-Server-Example-Report.md)** - Domain controller audit report matching WindowsServerAuditor output format
+- **[macOS Workstation Example](examples/macOS-Workstation-Example-Report.md)** - Mac system audit report matching macOSWorkstationAuditor output format
 
 ### Multi-System Aggregated Reports
 - **[Aggregated HTML Report Example](examples/Aggregated-Report-Example.html)** - Professional client-ready report matching actual NetworkAuditAggregator output format
 
-**Note:** The aggregated report example demonstrates the exact structure, styling, and content format produced by the NetworkAuditAggregator tool when processing real JSON audit files.
+**Key Features Demonstrated:**
+- **Exact output format** matching real tool structure and sections
+- **Risk-based findings** categorization (HIGH/MEDIUM/LOW/INFO)
+- **Executive summary** with actionable priority matrix
+- **Critical action items** with detailed recommendations
+- **Sanitized data** - realistic findings with no private information
+- **Cross-platform consistency** in reporting format and content structure
+
+**Note:** All examples reflect the precise output format users will receive when running the actual audit tools.
 
 ## Requirements
 
