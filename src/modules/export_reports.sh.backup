@@ -12,8 +12,11 @@ RISK_COUNT_INFO=0
 
 export_markdown_report() {
     log_message "INFO" "Generating technician report..." "REPORT"
-
-    # Generate technician report (matching Windows format) - findings already collected
+    
+    # Collect all findings from modules
+    collect_all_findings
+    
+    # Generate technician report (matching Windows format)
     local report_file="$OUTPUT_PATH/${BASE_FILENAME}_technician_report.md"
     
     generate_markdown_header > "$report_file"
@@ -33,8 +36,7 @@ export_markdown_report() {
 
 export_raw_data_json() {
     log_message "INFO" "Generating JSON raw data export..." "REPORT"
-
-    # Use findings already collected - don't collect again
+    
     local json_file="$OUTPUT_PATH/${BASE_FILENAME}_raw_data.json"
     
     # Generate JSON structure matching Windows version format
@@ -91,12 +93,7 @@ EOF
         [[ -z "$item" ]] && item="Unknown"
         [[ -z "$value" ]] && value="Unknown"
         [[ -z "$risk_level" ]] && risk_level="INFO"
-
-        # Skip empty or malformed entries
-        if [[ "$item" == "Unknown" && "$value" == "Unknown" ]]; then
-            continue
-        fi
-
+        
         # Generate finding ID
         local finding_id="macOS-$(echo "$category$item" | tr '[:upper:]' '[:lower:]' | tr ' ' '-' | tr -cd '[:alnum:]-')"
         
@@ -460,7 +457,7 @@ EOF
                         [[ -z "$risk_level" ]] && risk_level="INFO"
                         
                         # Skip empty or malformed entries
-                        if [[ "$item" == "Unknown" && "$value" == "Unknown" ]]; then
+                        if [[ "$item" == "Unknown" && "$value" == "Unknown" && -z "$details" ]]; then
                             continue
                         fi
                         
@@ -574,17 +571,6 @@ EOF
         fi
     done
 
-    # Top CPU processes - show if available for consistency
-    for finding in "${ALL_FINDINGS[@]}"; do
-        local item=$(echo "$finding" | sed -n 's/.*"item":"\([^"]*\)".*/\1/p' | head -1)
-        if [[ "$item" == "Top 5 Process CPU Usage" ]]; then
-            local value=$(echo "$finding" | sed -n 's/.*"value":"\([^"]*\)".*/\1/p' | head -1)
-            local details=$(echo "$finding" | sed -n 's/.*"details":"\([^"]*\)".*/\1/p' | head -1)
-            echo "- **Top CPU Processes:** $value - $details"
-            break
-        fi
-    done
-
     # Process count - show once
     for finding in "${ALL_FINDINGS[@]}"; do
         local item=$(echo "$finding" | sed -n 's/.*"item":"\([^"]*\)".*/\1/p' | head -1)
@@ -605,7 +591,7 @@ EOF
             local details=$(echo "$finding" | sed -n 's/.*"details":"\([^"]*\)".*/\1/p' | head -1)
             local recommendation=$(echo "$finding" | sed -n 's/.*"recommendation":"\([^"]*\)".*/\1/p' | head -1)
             if [[ "$risk_level" == "MEDIUM" || "$risk_level" == "HIGH" ]]; then
-                echo "- **Disk Space Warning:** $value - $details"
+                echo "- **⚠️ Disk Space:** $value - $details"
                 if [[ -n "$recommendation" ]]; then
                     echo "  - Action: $recommendation"
                 fi
@@ -740,7 +726,7 @@ EOF
             local value=$(echo "$finding" | sed -n 's/.*"value":"\([^"]*\)".*/\1/p' | head -1)
             local details=$(echo "$finding" | sed -n 's/.*"details":"\([^"]*\)".*/\1/p' | head -1)
             local recommendation=$(echo "$finding" | sed -n 's/.*"recommendation":"\([^"]*\)".*/\1/p' | head -1)
-            echo "- **Risky Network Ports:** $value - $details"
+            echo "- **⚠️ Risky Network Ports:** $value - $details"
             if [[ -n "$recommendation" ]]; then
                 echo "  - Action: $recommendation"
             fi
@@ -788,58 +774,10 @@ EOF
             local value=$(echo "$finding" | sed -n 's/.*"value":"\([^"]*\)".*/\1/p' | head -1)
             local details=$(echo "$finding" | sed -n 's/.*"details":"\([^"]*\)".*/\1/p' | head -1)
             local recommendation=$(echo "$finding" | sed -n 's/.*"recommendation":"\([^"]*\)".*/\1/p' | head -1)
-            echo "- **Remote Access Tools:** $value - $details"
+            echo "- **⚠️ Remote Access Tools:** $value - $details"
             if [[ -n "$recommendation" ]]; then
                 echo "  - Action: $recommendation"
             fi
-            break
-        fi
-    done
-
-    # Antivirus/Antimalware detection
-    for finding in "${ALL_FINDINGS[@]}"; do
-        local item=$(echo "$finding" | sed -n 's/.*"item":"\([^"]*\)".*/\1/p' | head -1)
-        if [[ "$item" == "Third-party Antivirus" ]]; then
-            local value=$(echo "$finding" | sed -n 's/.*"value":"\([^"]*\)".*/\1/p' | head -1)
-            local details=$(echo "$finding" | sed -n 's/.*"details":"\([^"]*\)".*/\1/p' | head -1)
-            echo "- **Antivirus Protection:** $value - $details"
-            break
-        fi
-    done
-
-    # RMM/Remote Management Tools
-    for finding in "${ALL_FINDINGS[@]}"; do
-        local item=$(echo "$finding" | sed -n 's/.*"item":"\([^"]*\)".*/\1/p' | head -1)
-        if [[ "$item" == "RMM Tools" || "$item" == "Remote Management" ]]; then
-            local value=$(echo "$finding" | sed -n 's/.*"value":"\([^"]*\)".*/\1/p' | head -1)
-            local details=$(echo "$finding" | sed -n 's/.*"details":"\([^"]*\)".*/\1/p' | head -1)
-            local recommendation=$(echo "$finding" | sed -n 's/.*"recommendation":"\([^"]*\)".*/\1/p' | head -1)
-            echo "- **RMM Tools:** $value - $details"
-            if [[ -n "$recommendation" ]]; then
-                echo "  - Action: $recommendation"
-            fi
-            break
-        fi
-    done
-
-    # iCloud Status
-    for finding in "${ALL_FINDINGS[@]}"; do
-        local item=$(echo "$finding" | sed -n 's/.*"item":"\([^"]*\)".*/\1/p' | head -1)
-        if [[ "$item" == "iCloud Status" ]]; then
-            local value=$(echo "$finding" | sed -n 's/.*"value":"\([^"]*\)".*/\1/p' | head -1)
-            local details=$(echo "$finding" | sed -n 's/.*"details":"\([^"]*\)".*/\1/p' | head -1)
-            echo "- **iCloud Status:** $value - $details"
-            break
-        fi
-    done
-
-    # Find My Status
-    for finding in "${ALL_FINDINGS[@]}"; do
-        local item=$(echo "$finding" | sed -n 's/.*"item":"\([^"]*\)".*/\1/p' | head -1)
-        if [[ "$item" == "Find My" ]]; then
-            local value=$(echo "$finding" | sed -n 's/.*"value":"\([^"]*\)".*/\1/p' | head -1)
-            local details=$(echo "$finding" | sed -n 's/.*"details":"\([^"]*\)".*/\1/p' | head -1)
-            echo "- **Find My:** $value - $details"
             break
         fi
     done
@@ -1063,73 +1001,47 @@ EOF
 }
 
 generate_recommendations() {
-    # Collect only LOW risk recommendations that aren't already in Critical Action Items
+    # Collect all recommendations from findings
     local recommendations=()
     local rec_counts=()
-
-    # Skip only inappropriate recommendations - let the logic determine what to show based on actual status
-    local skip_recommendations=(
-        "1 network printers detected. Ensure they are on trusted networks and use secure protocols"
-        "Evaluate enterprise security solutions such as CrowdStrike, SentinelOne, or Jamf Protect for comprehensive threat detection"
-        "Review remote access software for security and business justification"
-        "Time Machine is configured but no backups have completed. Verify backup destination is accessible"
-        "Review listening services for security implications. Disable unnecessary services"
-        "Disk space is getting low. Monitor usage and consider cleanup"
-        "Backup solutions detected - verify they are configured and running properly"
-        "Consider signing into iCloud for backup and device synchronization"
-        "Sign into iCloud and enable backup for data protection"
-        "Enable Find My for device security and theft protection"
-        "Sign into iCloud to enable Find My"
-    )
-
+    
     for finding in "${ALL_FINDINGS[@]}"; do
         local recommendation=$(echo "$finding" | sed -n 's/.*"recommendation":"\([^"]*\)".*/\1/p' | head -1)
-        local risk_level=$(echo "$finding" | sed -n 's/.*"risk_level":"\([^"]*\)".*/\1/p' | head -1)
-
-        if [[ -n "$recommendation" && "$recommendation" != "" && "$risk_level" == "LOW" ]]; then
-            # Check if this recommendation should be skipped
-            local should_skip=false
-            for skip_rec in "${skip_recommendations[@]}"; do
-                if [[ "$recommendation" == "$skip_rec" ]]; then
-                    should_skip=true
+        
+        if [[ -n "$recommendation" && "$recommendation" != "" ]]; then
+            # Check if this recommendation already exists
+            local rec_exists=false
+            local rec_index=0
+            
+            for i in "${!recommendations[@]}"; do
+                if [[ "${recommendations[$i]}" == "$recommendation" ]]; then
+                    rec_exists=true
+                    rec_index=$i
                     break
                 fi
             done
-
-            if [[ "$should_skip" == false ]]; then
-                # Check if this recommendation already exists
-                local rec_exists=false
-                local rec_index=0
-
-                for i in "${!recommendations[@]}"; do
-                    if [[ "${recommendations[$i]}" == "$recommendation" ]]; then
-                        rec_exists=true
-                        rec_index=$i
-                        break
-                    fi
-                done
-
-                if [[ "$rec_exists" == true ]]; then
-                    # Increment count
-                    rec_counts[$rec_index]=$((${rec_counts[$rec_index]} + 1))
-                else
-                    # Add new recommendation
-                    recommendations+=("$recommendation")
-                    rec_counts+=(1)
-                fi
+            
+            if [[ "$rec_exists" == true ]]; then
+                # Increment count
+                rec_counts[$rec_index]=$((${rec_counts[$rec_index]} + 1))
+            else
+                # Add new recommendation
+                recommendations+=("$recommendation")
+                rec_counts+=(1)
             fi
         fi
     done
-
+    
     if [[ ${#recommendations[@]} -gt 0 ]]; then
         cat << EOF
-## Additional Recommendations
+## Recommendations
 
 EOF
-
+        
         for i in "${!recommendations[@]}"; do
             cat << EOF
 - **${recommendations[$i]}**
+  - Affected Items: ${rec_counts[$i]}
 
 EOF
         done
@@ -1149,14 +1061,6 @@ EOF
 
 # Main report export functions called by the main script
 export_reports() {
-    log_message "INFO" "Starting report generation..." "REPORT"
-
-    # Collect findings once from all modules
-    collect_all_findings
-
-    # Generate both report formats using the same data
     export_markdown_report
     export_raw_data_json
-
-    log_message "SUCCESS" "All reports generated successfully" "REPORT"
 }

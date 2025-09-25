@@ -1,10 +1,10 @@
 # BusinessNetworkAuditor
 
-PowerShell-based IT assessment tool for Windows workstations and servers. Performs comprehensive discovery and inventory of IT infrastructure with detailed reporting for business technology management.
+Cross-platform IT assessment tool for Windows and macOS systems. Performs comprehensive discovery and inventory of IT infrastructure with detailed reporting for business technology management.
 
 ## Overview
 
-BusinessNetworkAuditor is an internal IT assessment tool designed for understanding and documenting Windows IT environments. It collects system configurations, software inventory, and IT management settings to provide visibility into business technology infrastructure.
+BusinessNetworkAuditor is an internal IT assessment tool designed for understanding and documenting Windows and macOS IT environments. It collects system configurations, software inventory, and IT management settings to provide visibility into business technology infrastructure across diverse platforms.
 
 ## Features
 
@@ -38,6 +38,8 @@ BusinessNetworkAuditor is an internal IT assessment tool designed for understand
 ## Deployment Options
 
 ### Local Execution
+
+#### Windows
 ```powershell
 # Clone repository
 git clone https://github.com/jeremyroe/BusinessNetworkAuditor.git
@@ -53,19 +55,55 @@ cd BusinessNetworkAuditor
 .\src\WindowsWorkstationAuditor.ps1 -OutputPath "C:\ITAssessments"
 ```
 
+#### macOS
+```bash
+# Clone repository
+git clone https://github.com/jeremyroe/BusinessNetworkAuditor.git
+cd BusinessNetworkAuditor
+
+# Run workstation assessment (standard user - limited analysis)
+./src/macOSWorkstationAuditor.sh
+
+# Run with administrative privileges (recommended for complete analysis)
+sudo ./src/macOSWorkstationAuditor.sh
+
+# Custom output location with admin privileges
+sudo ./src/macOSWorkstationAuditor.sh -o "/tmp/assessments"
+```
+
+**Privilege Behavior:**
+- **Standard User**: Script displays privilege requirements and continues with limited analysis
+- **Administrator**: Complete analysis including Apple Business Manager enrollment, device supervision, and security configuration
+- **Clear Guidance**: Script shows upfront what requires elevated privileges
+
 ### Web Deployment
 For remote assessment without local installation:
 
+#### Windows
 ```powershell
 # Workstation assessment
-iex (irm https://your-url/WindowsWorkstationAuditor-Web.ps1)
+iex (irm https://raw.githubusercontent.com/jeremyroe/BusinessNetworkAuditor/main/WindowsWorkstationAuditor-Web.ps1)
 
 # Server assessment
 iex (irm https://your-url/WindowsServerAuditor-Web.ps1)
 
 # Custom output path
-$OutputPath = "C:\RemoteAssessments"; iex (irm https://your-url/WindowsWorkstationAuditor-Web.ps1)
+$OutputPath = "C:\RemoteAssessments"; iex (irm https://raw.githubusercontent.com/jeremyroe/BusinessNetworkAuditor/main/WindowsWorkstationAuditor-Web.ps1)
 ```
+
+#### macOS
+```bash
+# Workstation assessment (standard user - limited analysis)
+curl -s https://raw.githubusercontent.com/jeremyroe/BusinessNetworkAuditor/main/macOSWorkstationAuditor-Web.sh | bash
+
+# Workstation assessment with administrative privileges (recommended)
+curl -s https://raw.githubusercontent.com/jeremyroe/BusinessNetworkAuditor/main/macOSWorkstationAuditor-Web.sh | sudo bash
+
+# Custom output path with admin privileges
+export OUTPUT_PATH="/tmp/assessments" && curl -s https://raw.githubusercontent.com/jeremyroe/BusinessNetworkAuditor/main/macOSWorkstationAuditor-Web.sh | sudo bash
+```
+
+**Note**: Web deployment with `sudo` provides complete analysis including Apple Business Manager enrollment detection.
 
 ### Multi-System Report Aggregation
 Generate consolidated client reports from multiple system audits:
@@ -95,9 +133,24 @@ copy output\*_raw_data.json import\
 **Example Output:** See `examples/Example-Client-IT-Assessment-Report-20240316.html` for a sample aggregated report with sanitized data.
 
 ## Requirements
+
+### Windows Systems
 - Windows 10/11 (workstations) or Windows Server 2016+ (servers)
 - PowerShell 5.0 or later
 - Local Administrator rights recommended for complete analysis
+
+### macOS Systems
+- macOS 12+ (Monterey and later)
+- bash 3.2+ (included with macOS)
+- Standard macOS utilities (included with system)
+- **Administrator privileges required for complete analysis**
+  - Device supervision and Apple Business Manager enrollment detection
+  - Security configuration analysis (FileVault, XProtect, supervision status)
+  - Running without admin privileges shows privilege requirements upfront
+
+### Building Web Versions
+- PowerShell 5.0+ (for running build script on technician workstation)
+- Use `./Build-WebVersions.ps1` to generate self-contained web deployment files
 
 ## Output Files
 

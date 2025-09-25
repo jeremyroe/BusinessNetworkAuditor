@@ -34,16 +34,33 @@ check_macos_version() {
     local os_build=$(sw_vers -buildVersion)
     local os_name=$(sw_vers -productName)
     
+    # Check for beta/developer builds first
+    local build_type="Production"
+    local is_beta_build=false
+    
+    # Check for beta/developer build indicators
+    if echo "$os_build" | grep -qE "[a-z]$"; then
+        build_type="Beta/Developer Build"
+        is_beta_build=true
+    elif echo "$os_version" | grep -qE "beta|Beta|BETA"; then
+        build_type="Beta Build"
+        is_beta_build=true
+    elif [[ $(date +%Y) -lt 2024 ]] && [[ "${os_version%%.*}" -ge 14 ]]; then
+        # Future version detection (basic heuristic)
+        build_type="Pre-release Build"
+        is_beta_build=true
+    fi
+    
     # Use the actual marketing version instead of internal version numbers
     # Extract major version from the marketing version (e.g., 15.1 -> 15)
-    local marketing_major=$(echo "$os_version" | cut -d. -f1)
-    local marketing_minor=$(echo "$os_version" | cut -d. -f2)
+    local marketing_major=$(echo "$os_version" | cut -d. -f1 | tr -d '\n\r ' | sed 's/[^0-9]//g' | head -1)
+    local marketing_minor=$(echo "$os_version" | cut -d. -f2 | tr -d '\n\r ' | sed 's/[^0-9]//g' | head -1)
     
     # Ensure they are valid integers
-    if ! [[ "$marketing_major" =~ ^[0-9]+$ ]]; then
+    if [[ -z "$marketing_major" ]] || ! [[ "$marketing_major" =~ ^[0-9]+$ ]]; then
         marketing_major=0
     fi
-    if ! [[ "$marketing_minor" =~ ^[0-9]+$ ]]; then
+    if [[ -z "$marketing_minor" ]] || ! [[ "$marketing_minor" =~ ^[0-9]+$ ]]; then
         marketing_minor=0
     fi
     
@@ -106,8 +123,8 @@ check_macos_version() {
         *)
             # For unknown versions (future or very old), be conservative
             if [[ "$marketing_major" -gt 15 ]]; then
-                version_status="Newer Version"
-                recommendation="Running newer macOS version. Verify enterprise software compatibility"
+                version_status="Current"
+                recommendation=""
             else
                 version_status="End of Life (Legacy)"
                 risk_level="HIGH"
@@ -116,7 +133,24 @@ check_macos_version() {
             ;;
     esac
     
-    add_patch_finding "System" "macOS Version" "$os_version" "$os_name $os_version (Build: $os_build) - $version_status" "$risk_level" "$recommendation"
+    # Override risk level and recommendation for beta/developer builds
+    if [[ "$is_beta_build" == true ]]; then
+        risk_level="LOW"
+        version_status="$build_type"
+        case "$build_type" in
+            "Beta/Developer Build")
+                recommendation="Running a beta or developer build. Consider upgrading to production release for stability and security"
+                ;;
+            "Beta Build")
+                recommendation="Running a beta version. Monitor for stability issues and upgrade when production version available"
+                ;;
+            "Pre-release Build")
+                recommendation="Running a pre-release version. Verify compatibility with enterprise software"
+                ;;
+        esac
+    fi
+    
+    add_patch_finding "Patching" "macOS Version" "$os_version" "$os_name $os_version (Build: $os_build) - $version_status" "$risk_level" "$recommendation"
 }
 
 check_available_updates() {
@@ -127,14 +161,26 @@ check_available_updates() {
     local update_count=0
     local critical_updates=0
     
-    # Use softwareupdate to check for available updates
+    # Use softwareupdate to check for available updates (with timeout)
     if command -v softwareupdate >/dev/null 2>&1; then
-        log_message "INFO" "Scanning for available updates (this may take a moment)..." "PATCHING"
-        update_output=$(softwareupdate -l 2>/dev/null)
+        log_message "INFO" "Scanning for available updates (30 second timeout)..." "PATCHING"
+        # Use timeout to prevent hanging - softwareupdate can be very slow
+        if command -v timeout >/dev/null 2>&1; then
+            update_output=$(timeout 30 softwareupdate -l 2>&1)
+        elif command -v gtimeout >/dev/null 2>&1; then
+            update_output=$(gtimeout 30 softwareupdate -l 2>&1)  
+        else
+            # No timeout available, use a direct approach with shorter timeout
+            log_message "INFO" "Using direct softwareupdate check..." "PATCHING"
+            update_output=$(softwareupdate -l 2>&1)
+            if [[ $? -ne 0 ]] || [[ -z "$update_output" ]]; then
+                update_output="Unable to check for updates"
+            fi
+        fi
         
         if echo "$update_output" | grep -q "No new software available"; then
             add_patch_finding "Patching" "Available Updates" "None" "System is up to date" "INFO" ""
-        elif echo "$update_output" | grep -q "Software Update found"; then
+        elif echo "$update_output" | grep -qE "(Software Update found|restart.*required|Title:.*Version:)"; then
             # Count available updates and extract details
             update_count=$(echo "$update_output" | grep -c "Title:" || echo 0)
             
@@ -166,8 +212,15 @@ check_available_updates() {
             fi
             
             add_patch_finding "Patching" "Available Updates" "$update_count updates" "$update_details" "$risk_level" "$recommendation"
+        elif echo "$update_output" | grep -q "timeout"; then
+            add_patch_finding "Patching" "Update Check" "Timeout" "Software update check timed out after 30 seconds" "MEDIUM" "Check network connectivity and manually verify updates in System Settings"
         else
-            add_patch_finding "Patching" "Update Check" "Unable to determine" "Could not check for available updates" "LOW" "Manually check for updates in System Preferences"
+            # Handle other error cases or unexpected output
+            local error_detail="Unknown response from softwareupdate command"
+            if [[ -n "$update_output" ]]; then
+                error_detail="Unexpected output: $(echo "$update_output" | head -1 | cut -c1-50)"
+            fi
+            add_patch_finding "Patching" "Update Check" "Check Failed" "$error_detail" "MEDIUM" "Verify softwareupdate command access and check System Settings manually"
         fi
     else
         add_patch_finding "Patching" "Update Tool" "Not Available" "softwareupdate command not found" "LOW" "Check system integrity"

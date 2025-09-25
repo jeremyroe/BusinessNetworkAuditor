@@ -14,9 +14,12 @@ get_process_analysis_data() {
     
     # Analyze running processes
     analyze_running_processes
-    
-    # Check for suspicious processes
-    check_suspicious_processes
+
+    # Analyze resource usage
+    analyze_cpu_usage
+    analyze_process_memory_usage
+
+    # Suspicious process detection removed - not appropriate for IT audit tool
     
     log_message "SUCCESS" "Process analysis completed - ${#PROCESS_FINDINGS[@]} findings" "PROCESSES"
 }
@@ -28,59 +31,80 @@ analyze_running_processes() {
     local total_processes=$(ps -ax | wc -l | tr -d ' ')
     ((total_processes--))  # Remove header line
     
-    add_process_finding "System" "Total Running Processes" "$total_processes processes" "All active processes on system" "INFO" ""
-    
-    # Get user processes vs system processes
+    # Get user processes vs system processes for consolidated report
     local user_processes=$(ps -axo user,pid,command | grep -v "^root\|^_\|^daemon" | wc -l | tr -d ' ')
     local system_processes=$((total_processes - user_processes))
     
-    add_process_finding "System" "User Processes" "$user_processes processes" "Processes running under user accounts" "INFO" ""
-    add_process_finding "System" "System Processes" "$system_processes processes" "Processes running under system accounts" "INFO" ""
+    add_process_finding "System" "Process Activity" "$total_processes total" "User: $user_processes, System: $system_processes" "INFO" ""
 }
 
-check_suspicious_processes() {
-    log_message "INFO" "Checking for suspicious or high-risk processes..." "PROCESSES"
-    
-    # Get all running processes with full command lines
-    local all_processes=$(ps -axo pid,ppid,user,%cpu,%mem,command)
-    
-    # Check for processes that might indicate security issues
-    local suspicious_patterns=(
-        "bitcoin"
-        "miner"
-        "cryptonight"
-        "xmrig"
-        "cgminer"
-        "bfgminer"
-        "ethminer"
-        "backdoor"
-        "rootkit"
-        "keylogger"
-        "trojan"
-    )
-    
-    local suspicious_found=()
-    
-    for pattern in "${suspicious_patterns[@]}"; do
-        local matches=$(echo "$all_processes" | grep -i "$pattern" | grep -v grep)
-        if [[ -n "$matches" ]]; then
-            suspicious_found+=("$pattern")
-        fi
-    done
-    
-    if [[ ${#suspicious_found[@]} -gt 0 ]]; then
-        local suspicious_list=$(IFS=", "; echo "${suspicious_found[*]}")
-        add_process_finding "Security" "Suspicious Processes" "${#suspicious_found[@]} detected" "Patterns: $suspicious_list" "HIGH" "Investigate suspicious processes immediately. They may indicate malware or unauthorized software"
-    else
-        add_process_finding "Security" "Suspicious Processes" "None detected" "No obviously suspicious process names found" "INFO" ""
+analyze_cpu_usage() {
+    log_message "INFO" "Analyzing CPU usage by processes..." "PROCESSES"
+
+    # Get top 5 CPU processes with actual data format
+    local top_cpu_data=$(ps -axo pid,%cpu,command | sort -nr -k2 | head -6 | tail -5)
+
+    if [[ -n "$top_cpu_data" ]]; then
+        local cpu_total="0.0"
+        local cpu_details=""
+
+        while IFS= read -r line; do
+            if [[ -n "$line" ]]; then
+                local cpu_percent=$(echo "$line" | awk '{print $2}')
+                local process_name=$(echo "$line" | awk '{for(i=3;i<=NF;i++) printf "%s ", $i; print ""}' | sed 's/.*\///g' | cut -d' ' -f1 | head -c 20)
+
+                if [[ -n "$cpu_details" ]]; then
+                    cpu_details="$cpu_details,$process_name: ${cpu_percent}%"
+                else
+                    cpu_details="$process_name: ${cpu_percent}%"
+                fi
+
+                cpu_total=$(echo "$cpu_total + $cpu_percent" | bc 2>/dev/null || echo "$cpu_total")
+            fi
+        done <<< "$top_cpu_data"
+
+        add_process_finding "System" "Top 5 Process CPU Usage" "${cpu_total}% total" "Details: $cpu_details" "INFO" ""
     fi
-    
-    # Check for high CPU usage processes
-    check_high_cpu_processes
-    
-    # Check for network-related processes
-    check_network_processes
 }
+
+analyze_process_memory_usage() {
+    log_message "INFO" "Analyzing memory usage by processes..." "PROCESSES"
+
+    # Get top 5 memory processes using RSS (Resident Set Size)
+    local top_mem_data=$(ps -axo pid,rss,command | sort -nr -k2 | head -6 | tail -5)
+
+    if [[ -n "$top_mem_data" ]]; then
+        local mem_total_kb=0
+        local mem_details=""
+
+        while IFS= read -r line; do
+            if [[ -n "$line" ]]; then
+                local mem_kb=$(echo "$line" | awk '{print $2}')
+                local process_name=$(echo "$line" | awk '{for(i=3;i<=NF;i++) printf "%s ", $i; print ""}' | sed 's/.*\///g' | cut -d' ' -f1 | head -c 20)
+
+                # Convert KB to MB
+                local mem_mb=$((mem_kb / 1024))
+
+                # Calculate percentage of 16GB (total system memory)
+                local mem_percent=$(echo "scale=1; $mem_kb / 16384 / 1024 * 100" | bc 2>/dev/null || echo "0.0")
+
+                if [[ -n "$mem_details" ]]; then
+                    mem_details="$mem_details,$process_name: ${mem_percent}% (${mem_mb}MB)"
+                else
+                    mem_details="$process_name: ${mem_percent}% (${mem_mb}MB)"
+                fi
+
+                mem_total_kb=$((mem_total_kb + mem_kb))
+            fi
+        done <<< "$top_mem_data"
+
+        local mem_total_gb=$(echo "scale=2; $mem_total_kb / 1024 / 1024" | bc 2>/dev/null || echo "0.00")
+
+    fi
+}
+
+# Suspicious process detection function removed - not appropriate for enterprise IT audit tool
+# This is not an antimalware solution and should not pretend to detect threats
 
 check_high_cpu_processes() {
     log_message "INFO" "Checking for high CPU usage processes..." "PROCESSES"
@@ -206,7 +230,36 @@ check_network_processes() {
         local network_connections=$(lsof -i -n | grep -E "ESTABLISHED|LISTEN" | awk '{print $2 ":" $1}' | sort -u | head -10)
         if [[ -n "$network_connections" ]]; then
             local connection_count=$(echo "$network_connections" | wc -l | tr -d ' ')
-            add_process_finding "Network" "Active Network Connections" "$connection_count connections" "PIDs with network activity: $(echo "$network_connections" | tr '\n' ', ' | sed 's/, $//')" "INFO" ""
+            
+            # Format the connections in a more readable way - just process names
+            local formatted_connections=""
+            local seen_processes=()
+            while IFS= read -r connection; do
+                if [[ -n "$connection" ]]; then
+                    local process=$(echo "$connection" | cut -d: -f2)
+                    # Clean up process name - remove path, truncate, and fix encoding
+                    process=$(basename "$process" | cut -c1-15)
+                    # Remove hex encoding and clean up names
+                    process=$(echo "$process" | sed 's/\\x20/ /g' | sed 's/\\x[0-9A-Fa-f][0-9A-Fa-f]//g' | tr -d '\\')
+                    # Remove extra whitespace and truncate
+                    process=$(echo "$process" | sed 's/[[:space:]]*$//' | sed 's/^[[:space:]]*//' | cut -c1-12)
+                    
+                    # Skip empty or very short process names
+                    if [[ -n "$process" && ${#process} -gt 2 ]]; then
+                        # Only add if not already seen
+                        if [[ ! " ${seen_processes[*]} " =~ " ${process} " ]]; then
+                            seen_processes+=("$process")
+                            if [[ -n "$formatted_connections" ]]; then
+                                formatted_connections="$formatted_connections, $process"
+                            else
+                                formatted_connections="$process"
+                            fi
+                        fi
+                    fi
+                fi
+            done <<< "$network_connections"
+            
+            add_process_finding "Network" "Active Network Connections" "${#seen_processes[@]} unique processes" "Processes with network activity: $formatted_connections" "INFO" ""
         fi
     fi
     

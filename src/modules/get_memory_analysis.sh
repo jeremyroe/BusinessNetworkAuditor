@@ -28,47 +28,68 @@ analyze_memory_usage() {
     # Get memory pressure information
     local memory_pressure=$(memory_pressure 2>/dev/null | head -20)
     
-    # Extract key memory metrics
+    # Extract key memory metrics and get correct page size
+    local page_size=$(echo "$memory_pressure" | grep "page size" | sed 's/.*page size of \([0-9]*\).*/\1/')
     local pages_free=$(echo "$memory_pressure" | grep "Pages free:" | awk '{print $3}' | tr -d '.')
     local pages_active=$(echo "$memory_pressure" | grep "Pages active:" | awk '{print $3}' | tr -d '.')
     local pages_inactive=$(echo "$memory_pressure" | grep "Pages inactive:" | awk '{print $3}' | tr -d '.')
     local pages_wired=$(echo "$memory_pressure" | grep "Pages wired down:" | awk '{print $4}' | tr -d '.')
-    local pages_compressed=$(echo "$memory_pressure" | grep "Pages stored in compressor:" | awk '{print $5}' | tr -d '.')
+    local pages_compressed=$(echo "$memory_pressure" | grep "used by compressor:" | awk '{print $5}' | tr -d '.')
+    
+    # Set default page size if not found
+    [[ -z "$page_size" ]] && page_size=16384
     
     # Calculate memory usage if we have the data
     if [[ -n "$pages_free" && -n "$pages_active" && -n "$pages_wired" ]]; then
-        local page_size=4096  # 4KB page size on most systems
         local free_memory_bytes=$((pages_free * page_size))
         local active_memory_bytes=$((pages_active * page_size))
         local wired_memory_bytes=$((pages_wired * page_size))
+        local inactive_memory_bytes=$((${pages_inactive:-0} * page_size))
+        local compressed_memory_bytes=$((${pages_compressed:-0} * page_size))
         
-        local free_memory_gb=$(echo "scale=2; $free_memory_bytes / 1073741824" | bc)
+        # Calculate used memory (active + wired + compressed)
+        local used_memory_bytes=$((active_memory_bytes + wired_memory_bytes + compressed_memory_bytes))
+        
+        # Calculate available/free memory (total - used)
+        local available_memory_bytes=$((total_memory_bytes - used_memory_bytes))
+        local available_memory_gb=$(echo "scale=2; $available_memory_bytes / 1073741824" | bc)
+        
         local active_memory_gb=$(echo "scale=2; $active_memory_bytes / 1073741824" | bc)
-        local wired_memory_gb=$(echo "scale=2; $wired_memory_bytes / 1073741824" | bc)
+        local used_memory_gb=$(echo "scale=2; $used_memory_bytes / 1073741824" | bc)
         
-        local memory_usage_percent=$(echo "scale=1; (($total_memory_bytes - $free_memory_bytes) * 100) / $total_memory_bytes" | bc)
+        local memory_usage_percent=$(echo "scale=1; ($used_memory_bytes * 100) / $total_memory_bytes" | bc)
         
         # Assess memory status
         local risk_level="INFO"
         local recommendation=""
         
-        if (( $(echo "$memory_usage_percent > 90" | bc -l) )); then
+        # Convert to integer for bash 3.2 compatibility
+        local memory_usage_int=$(echo "$memory_usage_percent" | cut -d. -f1)
+        if [[ $memory_usage_int -gt 90 ]]; then
             risk_level="HIGH"
             recommendation="Memory usage is critically high. Close unnecessary applications or add more RAM"
-        elif (( $(echo "$memory_usage_percent > 80" | bc -l) )); then
+        elif [[ $memory_usage_int -gt 80 ]]; then
             risk_level="MEDIUM"
             recommendation="Memory usage is high. Monitor memory-intensive applications"
-        elif (( $(echo "$memory_usage_percent > 70" | bc -l) )); then
+        elif [[ $memory_usage_int -gt 70 ]]; then
             risk_level="LOW"
             recommendation="Memory usage is moderate. Consider monitoring memory usage patterns"
         fi
         
-        add_memory_finding "Memory" "Memory Usage" "${memory_usage_percent}%" "Total: ${total_memory_gb}GB, Free: ${free_memory_gb}GB, Active: ${active_memory_gb}GB" "$risk_level" "$recommendation"
+        add_memory_finding "Memory" "Memory Usage" "${memory_usage_percent}%" "Total: ${total_memory_gb}GB, Used: ${used_memory_gb}GB, Available: ${available_memory_gb}GB" "$risk_level" "$recommendation"
         
-        # Check memory pressure indicators
-        if [[ -n "$pages_compressed" && $pages_compressed -gt 0 ]]; then
+        # Check memory pressure indicators - only report compression issues on Intel Macs
+        if [[ -n "$pages_compressed" && "$pages_compressed" != "0" ]]; then
             local compressed_gb=$(echo "scale=2; ($pages_compressed * $page_size) / 1073741824" | bc)
-            add_memory_finding "Memory" "Memory Compression" "${compressed_gb}GB compressed" "System is using memory compression to manage pressure" "LOW" "Memory compression active - consider adding more RAM for better performance"
+            
+            # Check if this is Apple Silicon (M-series) - compression is normal, don't report it
+            local cpu_brand=$(sysctl -n machdep.cpu.brand_string 2>/dev/null || echo "")
+            if [[ "$cpu_brand" != *"Apple"* ]]; then
+                # Only report on Intel Macs where high compression might indicate memory pressure
+                if (( $(echo "$compressed_gb > 2" | bc -l) )); then
+                    add_memory_finding "Memory" "Memory Compression" "${compressed_gb}GB compressed" "High memory compression may indicate memory pressure" "LOW" "Consider monitoring memory usage or adding more RAM"
+                fi
+            fi
         fi
     else
         # Fallback to basic memory info
@@ -153,8 +174,13 @@ get_human_readable_process_name() {
             echo "$clean_name" | sed 's/\.app.*//' | sed 's/\([A-Z]\)/ \1/g' | sed 's/^ //'
             ;;
         *)
-            # Return the clean name with camel case separated
-            echo "$clean_name" | sed 's/\([A-Z]\)/ \1/g' | sed 's/^ //'
+            # Handle truncated or encoded process names
+            if [[ ${#clean_name} -gt 15 && "$clean_name" =~ ^[A-Za-z0-9+/=]+$ ]]; then
+                echo "Process (${clean_name:0:10}...)"
+            else
+                # Return the clean name with camel case separated
+                echo "$clean_name" | sed 's/\([A-Z]\)/ \1/g' | sed 's/^ //'
+            fi
             ;;
     esac
 }
@@ -180,13 +206,17 @@ check_memory_intensive_processes() {
             local process_name=$(get_human_readable_process_name "$exe_name")
             
             # Check if process is using significant memory (>5% or >500MB)
-            local mem_mb=$((mem_rss_kb / 1024))
+            # Convert to integer first to handle floating point values from top command
+            local mem_rss_kb_int=$(echo "$mem_rss_kb" | awk '{print int($1)}')
+            local mem_mb=$((mem_rss_kb_int / 1024))
             total_top5_memory=$((total_top5_memory + mem_mb))
             
             # Add to top 5 list with readable names
             top5_process_details+=("$process_name: ${mem_percent}% (${mem_mb}MB)")
             
-            if (( $(echo "$mem_percent > 10.0" | bc -l) )) || [[ $mem_mb -gt 500 ]]; then
+            # Convert percentage to integer for comparison
+            local mem_percent_int=$(echo "$mem_percent" | cut -d. -f1)
+            if [[ $mem_percent_int -gt 10 ]] || [[ $mem_mb -gt 500 ]]; then
                 ((high_memory_count++))
                 high_memory_details+=("$process_name: ${mem_percent}% (${mem_mb}MB)")
             fi

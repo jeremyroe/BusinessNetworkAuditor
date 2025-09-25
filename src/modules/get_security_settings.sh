@@ -6,6 +6,21 @@
 # Global variables for collecting data
 declare -a SECURITY_FINDINGS=()
 
+# Function to add findings to the array (bash 3.2 compatible)
+add_security_finding() {
+    local category="$1"
+    local item="$2"
+    local value="$3"
+    local details="$4"
+    local risk_level="$5"
+    local recommendation="$6"
+
+    # Create JSON finding (bash 3.2 compatible string building)
+    local finding="{\"category\":\"$category\",\"item\":\"$item\",\"value\":\"$value\",\"details\":\"$details\",\"risk_level\":\"$risk_level\",\"recommendation\":\"$recommendation\"}"
+
+    SECURITY_FINDINGS+=("$finding")
+}
+
 get_security_settings_data() {
     log_message "INFO" "Analyzing macOS security settings..." "SECURITY"
     
@@ -30,7 +45,10 @@ get_security_settings_data() {
     
     # Check third-party security software
     check_third_party_security
-    
+
+    # Check RMM (Remote Monitoring and Management) tools
+    check_rmm_tools
+
     # Check privacy settings
     check_privacy_settings
     
@@ -46,8 +64,25 @@ get_security_settings_data() {
     # Check Find My status
     check_find_my_status
     
-    # Check device information
-    check_device_information
+    # Check screen sharing settings
+    check_screen_sharing_settings
+    
+    # Check file sharing services
+    check_file_sharing_services
+    
+    # Check AirDrop status
+    check_airdrop_status
+    
+    # Check RMM agents
+    check_rmm_agents
+    
+    # Check backup solutions
+    check_backup_solutions
+    
+    # Check managed login providers
+    check_managed_login
+    
+    # Device information handled by system information module to avoid duplication
     
     log_message "SUCCESS" "Security settings analysis completed - ${#SECURITY_FINDINGS[@]} findings" "SECURITY"
 }
@@ -361,29 +396,119 @@ check_third_party_security() {
         local sec_list=$(IFS=", "; echo "${detected_security[*]}")
         add_security_finding "Security" "Security Tools" "Detected" "Found: $sec_list" "INFO" ""
     else
-        add_security_finding "Security" "Security Tools" "None Detected" "Consider additional security tools for enhanced protection" "LOW" "Consider network monitoring tools like Little Snitch for enhanced security"
+        add_security_finding "Security" "Security Tools" "None Detected" "Basic macOS security features detected" "INFO" "Evaluate enterprise security solutions such as CrowdStrike, SentinelOne, or Jamf Protect for comprehensive threat detection"
+    fi
+}
+
+check_rmm_tools() {
+    log_message "INFO" "Checking for RMM (Remote Monitoring and Management) tools..." "SECURITY"
+
+    local detected_rmm=()
+    local risk_level="INFO"
+    local recommendation=""
+
+    # Actual RMM applications (not screen sharing)
+    local rmm_paths=(
+        "/Applications/DattoRMM.app"
+        "/Applications/Kaseya.app"
+        "/Applications/NinjaRMM.app"
+        "/Applications/N-able.app"
+        "/Applications/Atera.app"
+        "/Applications/Pulseway.app"
+        "/Applications/Automate.app"
+        "/Applications/Datto.app"
+        "/Applications/Syncro.app"
+        "/Applications/SimpleHelp.app"
+        "/Applications/Level.app"
+        "/Applications/Tacticalrmm.app"
+        "/Applications/Comodo One.app"
+        "/Applications/ManageEngine.app"
+        "/Applications/SolarWinds.app"
+        "/Applications/Continuum.app"
+        "/Applications/LabTech.app"
+        "/Applications/ConnectWise Automate.app"
+        "/Applications/ConnectWise Manage.app"
+    )
+
+    # Check for RMM applications
+    for rmm_path in "${rmm_paths[@]}"; do
+        if [[ -d "$rmm_path" ]]; then
+            local rmm_name=$(basename "$rmm_path" .app)
+            detected_rmm+=("$rmm_name")
+        fi
+    done
+
+    # Check running processes for RMM services (not screen sharing)
+    local rmm_processes=$(ps -axo comm | grep -iE "(kaseya|ninj|nable|atera|pulseway|datto|syncro|simplehelp)" | head -3)
+    if [[ -n "$rmm_processes" ]]; then
+        while IFS= read -r process; do
+            if [[ -n "$process" ]]; then
+                local process_name=$(basename "$process" | cut -d. -f1)
+                # Only add if not already detected
+                if [[ ! " ${detected_rmm[*]} " =~ " ${process_name} " ]]; then
+                    detected_rmm+=("${process_name} (service)")
+                fi
+            fi
+        done <<< "$rmm_processes"
+    fi
+
+    # Report RMM findings
+    if [[ ${#detected_rmm[@]} -gt 0 ]]; then
+        local rmm_list=$(IFS=", "; echo "${detected_rmm[*]}")
+        risk_level="INFO"
+        recommendation=""
+        add_security_finding "Security" "RMM Tools" "Detected" "Found: $rmm_list" "$risk_level" "$recommendation"
+    else
+        add_security_finding "Security" "RMM Tools" "None Detected" "No remote monitoring or management platforms found" "INFO" ""
     fi
 }
 
 check_privacy_settings() {
     log_message "INFO" "Checking privacy and security settings..." "SECURITY"
     
-    # Check location services using multiple methods
-    local location_enabled="Disabled"
-    local location_details="Location services are not active"
+    # Check location services using accurate method
+    local location_enabled="Unknown"
+    local location_details="Unable to determine location services status"
     
-    # Method 1: Check locationd daemon process
-    if pgrep -x "locationd" >/dev/null 2>&1; then
-        location_enabled="Enabled"
-        location_details="Location services daemon is running"
-    # Method 2: Check for location database
-    elif [[ -f "/var/db/locationd/Library/Preferences/ByHost/com.apple.locationd.plist" ]]; then
-        location_enabled="Available"
-        location_details="Location services configured but daemon status unclear"
-    # Method 3: Check system preferences
-    elif defaults read /var/db/locationd/Library/Preferences/ByHost/com.apple.locationd LocationServicesEnabled 2>/dev/null | grep -q "1"; then
+    # Method 1: Check the actual LocationServicesEnabled setting (most reliable)
+    local location_pref=$(defaults read /var/db/locationd/Library/Preferences/ByHost/com.apple.locationd LocationServicesEnabled 2>/dev/null)
+    if [[ "$location_pref" == "1" ]]; then
         location_enabled="Enabled"
         location_details="Location services enabled in system preferences"
+    elif [[ "$location_pref" == "0" ]]; then
+        location_enabled="Disabled"
+        location_details="Location services disabled in system preferences"
+    # Method 2: Alternative location for newer macOS versions
+    elif [[ -f "/var/db/locationd/Library/Preferences/ByHost/com.apple.locationd.plist" ]]; then
+        # Try to read the plist directly
+        local plist_value=$(plutil -extract LocationServicesEnabled raw "/var/db/locationd/Library/Preferences/ByHost/com.apple.locationd.plist" 2>/dev/null)
+        if [[ "$plist_value" == "true" ]]; then
+            location_enabled="Enabled"
+            location_details="Location services enabled (plist configuration)"
+        elif [[ "$plist_value" == "false" ]]; then
+            location_enabled="Disabled"
+            location_details="Location services disabled (plist configuration)"
+        else
+            location_enabled="Available"
+            location_details="Location services configuration present but status unclear"
+        fi
+    # Method 3: Check user preference for current user
+    elif [[ -n "$(defaults read com.apple.locationmenu LocationServicesEnabled 2>/dev/null)" ]]; then
+        local user_location=$(defaults read com.apple.locationmenu LocationServicesEnabled 2>/dev/null)
+        if [[ "$user_location" == "1" ]]; then
+            location_enabled="Enabled"
+            location_details="Location services enabled (user preferences)"
+        else
+            location_enabled="Disabled"
+            location_details="Location services disabled (user preferences)"
+        fi
+    # Method 4: Check if daemon is running as a fallback indicator
+    elif pgrep -x "locationd" >/dev/null 2>&1; then
+        location_enabled="Enabled"
+        location_details="Location daemon active (indicates services are enabled)"
+    else
+        location_enabled="Disabled"
+        location_details="No location daemon or configuration detected"
     fi
     
     add_security_finding "Privacy" "Location Services" "$location_enabled" "$location_details" "INFO" ""
@@ -392,10 +517,20 @@ check_privacy_settings() {
     local analytics_enabled="Disabled"
     local analytics_details="Diagnostic data sharing is disabled"
     
-    # Check multiple possible locations for analytics settings
+    # Method 1: Check system-wide analytics setting
     local analytics_pref=$(defaults read /Library/Application\ Support/CrashReporter/DiagnosticMessagesHistory.plist AutoSubmit 2>/dev/null)
     if [[ -z "$analytics_pref" ]]; then
+        # Method 2: Alternative location
         analytics_pref=$(defaults read com.apple.SubmitDiagInfo AutoSubmit 2>/dev/null)
+    fi
+    if [[ -z "$analytics_pref" ]]; then
+        # Method 3: User-specific setting
+        analytics_pref=$(defaults read com.apple.CrashReporter DialogType 2>/dev/null)
+        if [[ "$analytics_pref" == "none" ]]; then
+            analytics_pref="0"
+        elif [[ "$analytics_pref" == "crashreport" || "$analytics_pref" == "server" ]]; then
+            analytics_pref="1"
+        fi
     fi
     
     if [[ "$analytics_pref" == "1" ]]; then
@@ -405,13 +540,17 @@ check_privacy_settings() {
         analytics_enabled="Disabled"
         analytics_details="Diagnostic data sharing is disabled"
     else
-        # Check if the system has never been configured (fresh install)
-        if [[ ! -f "/Library/Application Support/CrashReporter/DiagnosticMessagesHistory.plist" ]]; then
-            analytics_enabled="Not Configured"
-            analytics_details="Analytics preferences have not been set"
-        else
+        # Check if user chose to not send crash reports (typical default)
+        local crash_reporter_type=$(defaults read com.apple.CrashReporter DialogType 2>/dev/null)
+        if [[ "$crash_reporter_type" == "none" ]]; then
             analytics_enabled="Disabled"
-            analytics_details="Diagnostic data sharing appears to be disabled (default state)"
+            analytics_details="Crash reporting disabled (user preference)"
+        elif [[ -f "/Library/Application Support/CrashReporter/DiagnosticMessagesHistory.plist" ]]; then
+            analytics_enabled="Disabled"
+            analytics_details="Diagnostic data sharing disabled (system default)"
+        else
+            analytics_enabled="Not Configured"
+            analytics_details="Analytics preferences have not been configured"
         fi
     fi
     
@@ -586,8 +725,125 @@ check_mdm_enrollment() {
     
     add_security_finding "Management" "MDM Enrollment" "$enrollment_status" "$enrollment_details" "$risk_level" "$recommendation"
     
+    # Check device supervision status
+    check_device_supervision
+    
     # Check for configuration profiles
     check_configuration_profiles
+}
+
+check_device_supervision() {
+    log_message "INFO" "Checking device supervision status..." "SECURITY"
+    
+    local supervision_status="Not Supervised"
+    local supervision_details=""
+    local dep_status="Not Enrolled"
+    local risk_level="INFO"
+    local recommendation=""
+    
+    if command -v profiles >/dev/null 2>&1; then
+        # Check supervision status (requires elevated privileges)
+        local supervision_output=""
+        if [[ $EUID -eq 0 ]]; then
+            supervision_output=$(profiles -S 2>/dev/null)
+            
+            if [[ $? -eq 0 && -n "$supervision_output" ]]; then
+                if echo "$supervision_output" | grep -q "Device Enrollment Program.*YES"; then
+                    dep_status="DEP Enrolled"
+                    supervision_status="Supervised (DEP)"
+                    supervision_details="Device is supervised via Device Enrollment Program (Apple Business Manager)"
+                    risk_level="INFO"
+                elif echo "$supervision_output" | grep -q "Supervision.*YES"; then
+                    supervision_status="Supervised (Manual)"
+                    supervision_details="Device is manually supervised"
+                    risk_level="INFO"
+                elif echo "$supervision_output" | grep -q "Supervision.*NO"; then
+                    supervision_status="Not Supervised"
+                    supervision_details="Device is not under supervision"
+                    risk_level="INFO"
+                fi
+                
+                # Check DEP enrollment separately
+                if echo "$supervision_output" | grep -q "Device Enrollment Program.*NO"; then
+                    dep_status="Not DEP Enrolled"
+                fi
+            else
+                supervision_status="Unable to Check"
+                supervision_details="Run with sudo for definitive status"
+                dep_status="Unable to Check"
+            fi
+        else
+            # Running without administrative privileges - use alternative detection methods
+            supervision_details="Run with sudo for definitive status - using indirect detection"
+            
+            # Check for MDM-related files and processes as indicators
+            local mdm_indicators=0
+            
+            # Check for MDM processes
+            if pgrep -f "mdm" >/dev/null 2>&1; then
+                ((mdm_indicators++))
+            fi
+            
+            # Check for configuration profiles directory
+            if [[ -d "/var/db/ConfigurationProfiles" ]] && [[ $(ls -1 /var/db/ConfigurationProfiles/ 2>/dev/null | wc -l) -gt 2 ]]; then
+                ((mdm_indicators++))
+            fi
+            
+            # Check for common MDM apps
+            if [[ -d "/Applications/Company Portal.app" ]] || [[ -d "/Applications/Self Service.app" ]] || [[ -d "/Applications/Munki Managed Software Center.app" ]]; then
+                ((mdm_indicators++))
+            fi
+            
+            # Check definitive indicators for unmanaged devices
+            local profile_count=$(profiles show 2>/dev/null | grep -c "There are no configuration profiles" || echo "0")
+            local system_profiler_check=$(system_profiler SPConfigurationProfileDataType 2>/dev/null | wc -l)
+
+            if [[ "$profile_count" -gt 0 || "$system_profiler_check" -eq 0 ]]; then
+                # Definitive evidence of no management
+                supervision_status="Not Supervised"
+                dep_status="Not Enrolled"
+                supervision_details="No configuration profiles installed - personal/unmanaged device"
+                risk_level="INFO"
+                recommendation=""
+            elif [[ $mdm_indicators -gt 0 ]]; then
+                supervision_status="Possibly Supervised"
+                dep_status="Possibly Enrolled"
+                supervision_details="Found $mdm_indicators MDM indicators. Run with administrative privileges for definitive status"
+                risk_level="LOW"
+                recommendation="Run audit with sudo for complete device management analysis"
+            else
+                supervision_status="Not Supervised"
+                dep_status="Not Enrolled"
+                supervision_details="No MDM indicators or configuration profiles detected - personal/unmanaged device"
+                risk_level="INFO"
+                recommendation=""
+            fi
+        fi
+        
+        # Add DEP/Apple Business Manager status as separate finding
+        local dep_details=""
+        if [[ "$dep_status" == "DEP Enrolled" ]]; then
+            dep_details="Device enrolled through Apple Business Manager or Apple School Manager"
+        elif [[ "$dep_status" == "Not DEP Enrolled" ]]; then
+            dep_details="Device not enrolled via Apple Business Manager - manually managed or personal device"
+        elif [[ "$dep_status" == "Requires Administrative Privileges" ]]; then
+            dep_details="Apple Business Manager enrollment status requires administrative privileges (see startup message)"
+        elif [[ "$dep_status" == "Likely Not Enrolled" ]]; then
+            dep_details="No MDM indicators detected - appears to be personal/unmanaged device"
+        elif [[ "$dep_status" == "Possibly Enrolled" ]]; then
+            dep_details="MDM indicators detected - may be enrolled in device management"
+        fi
+        
+        add_security_finding "Management" "Apple Business Manager" "$dep_status" "$dep_details" "INFO" "$recommendation"
+        
+    else
+        supervision_status="Unable to Check"
+        supervision_details="profiles command not available"
+        risk_level="LOW"
+        recommendation="Install macOS command line tools to check supervision status"
+    fi
+    
+    add_security_finding "Management" "Device Supervision" "$supervision_status" "$supervision_details" "$risk_level" "$recommendation"
 }
 
 check_configuration_profiles() {
@@ -637,196 +893,565 @@ check_configuration_profiles() {
     fi
 }
 
-check_icloud_status() {
-    log_message "INFO" "Checking iCloud status..." "SECURITY"
+
+
+check_screen_sharing_settings() {
+    log_message "INFO" "Checking remote access settings..." "SECURITY"
     
-    local icloud_account="Not Signed In"
-    local icloud_services=""
+    # Check if Screen Sharing and SSH are enabled using proper methods from research
+    local screen_sharing_enabled="Disabled"
+    local vnc_enabled="Disabled" 
+    local remote_management_enabled="Disabled"
+    local ssh_enabled="Disabled"
+    local details=""
     local risk_level="INFO"
     local recommendation=""
     
-    # Check if signed into iCloud
-    local icloud_user=$(defaults read MobileMeAccounts Accounts 2>/dev/null | grep -A1 "AccountID" | grep -o '"[^"]*"' | head -1 | tr -d '"' 2>/dev/null || echo "")
-    
-    if [[ -n "$icloud_user" && "$icloud_user" != "" ]]; then
-        icloud_account="$icloud_user"
-        
-        # Check enabled iCloud services
-        local enabled_services=()
-        
-        # Check common iCloud services
-        local icloud_drive=$(defaults read com.apple.bird ubiquity-account-available 2>/dev/null || echo "unknown")
-        local icloud_photos=$(defaults read com.apple.Photos.Settings iCloudPhotosEnabled 2>/dev/null || echo "unknown")
-        local icloud_keychain=$(security list-keychains | grep -q "iCloud" && echo "enabled" || echo "disabled")
-        
-        if [[ "$icloud_drive" == "1" ]]; then
-            enabled_services+=("iCloud Drive")
-        fi
-        if [[ "$icloud_photos" == "1" ]]; then
-            enabled_services+=("Photos")
-        fi
-        if [[ "$icloud_keychain" == "enabled" ]]; then
-            enabled_services+=("Keychain")
-        fi
-        
-        if [[ ${#enabled_services[@]} -gt 0 ]]; then
-            icloud_services=$(IFS=", "; echo "${enabled_services[*]}")
-        else
-            icloud_services="Basic services only"
-        fi
-        
-        # Check for corporate vs personal account
-        if echo "$icloud_user" | grep -qE "@(company|corp|work|business)\."; then
-            risk_level="LOW"
-            recommendation="Corporate iCloud account detected. Ensure compliance with data policies"
-        fi
-        
-    else
-        icloud_account="Not Signed In"
-        icloud_services="No iCloud services active"
-        recommendation="Consider enabling iCloud for backup and device synchronization"
+    # Method 1: Check for VNC listening port using netstat (no sudo required)
+    if netstat -atp tcp 2>/dev/null | grep -q rfb; then
+        screen_sharing_enabled="Enabled" 
+        vnc_enabled="Enabled"
     fi
     
-    add_security_finding "Cloud Services" "iCloud Status" "$icloud_account" "$icloud_services" "$risk_level" "$recommendation"
+    # Method 2: Check if VNC port 5900 is listening (fallback)
+    if netstat -an 2>/dev/null | grep -q ":5900.*LISTEN"; then
+        screen_sharing_enabled="Enabled"
+        vnc_enabled="Enabled"
+    fi
+    
+    
+    # Check Apple Remote Desktop (ARD) - different from screen sharing
+    if pgrep -x "ARDAgent" >/dev/null 2>&1; then
+        remote_management_enabled="Enabled"
+    fi
+    
+    # Also check for Remote Management via system preferences (if available)
+    if [[ -f "/Library/Application Support/Apple/Remote Desktop/RemoteManagement.launchd" ]]; then
+        remote_management_enabled="Enabled"
+    fi
+    
+    # Check SSH (Remote Login) status using multiple methods
+    # Method 1: Check if SSH port 22 is listening (no admin required)
+    if netstat -an 2>/dev/null | grep -q -E "(\*\.22.*LISTEN|:22.*LISTEN|\*\.ssh.*LISTEN)"; then
+        ssh_enabled="Enabled"
+    fi
+    
+    # Method 2: Check if SSH process is running
+    if pgrep -x "sshd" >/dev/null 2>&1; then
+        ssh_enabled="Enabled"
+    fi
+    
+    # Method 3: Try systemsetup (may require admin)
+    local ssh_status=$(systemsetup -getremotelogin 2>/dev/null)
+    if [[ "$ssh_status" == *"Remote Login: On"* ]]; then
+        ssh_enabled="Enabled"
+    elif [[ "$ssh_status" == *"Remote Login: Off"* ]]; then
+        ssh_enabled="Disabled"
+    fi
+    
+    
+    # Determine overall status and risk level for all remote access services
+    local enabled_services=()
+    local remote_access_enabled="Disabled"
+    
+    if [[ "$vnc_enabled" == "Enabled" ]]; then
+        enabled_services+=("VNC/Screen Sharing")
+        remote_access_enabled="Enabled"
+    fi
+    
+    if [[ "$remote_management_enabled" == "Enabled" ]]; then
+        enabled_services+=("Remote Management/ARD")
+        remote_access_enabled="Enabled"
+    fi
+    
+    if [[ "$ssh_enabled" == "Enabled" ]]; then
+        enabled_services+=("SSH/Remote Login")
+        remote_access_enabled="Enabled"
+    fi
+    
+    # Set details and risk assessment based on all remote access services
+    if [[ "$remote_access_enabled" == "Enabled" ]]; then
+        details="Enabled services: $(IFS=", "; echo "${enabled_services[*]}")"
+        
+        if [[ ${#enabled_services[@]} -gt 2 ]]; then
+            risk_level="HIGH"
+            recommendation="Multiple remote access methods enabled (${#enabled_services[@]} services). Review necessity and ensure strong authentication"
+        elif [[ ${#enabled_services[@]} -gt 1 ]]; then
+            risk_level="MEDIUM"
+            recommendation="Multiple remote access methods enabled. Ensure proper authentication and network restrictions"
+        else
+            risk_level="LOW"  
+            recommendation="Remote access enabled. Ensure strong passwords and network access controls"
+        fi
+    else
+        details="No remote access services detected (SSH, VNC, ARD all disabled)"
+        risk_level="INFO"
+        recommendation=""
+    fi
+    
+    add_security_finding "Security" "Remote Access Services" "$remote_access_enabled" "$details" "$risk_level" "$recommendation"
+}
+
+check_file_sharing_services() {
+    log_message "INFO" "Checking file sharing services..." "SECURITY"
+    
+    local file_sharing_enabled="Disabled"
+    local enabled_services=()
+    local details=""
+    local risk_level="INFO"
+    local recommendation=""
+    
+    # Check SMB (Samba) file sharing
+    if launchctl list | grep -q smbd 2>/dev/null; then
+        enabled_services+=("SMB")
+        file_sharing_enabled="Enabled"
+    fi
+    
+    # Check AFP (Apple Filing Protocol) - deprecated but still possible
+    if launchctl list | grep -q afpd 2>/dev/null; then
+        enabled_services+=("AFP")
+        file_sharing_enabled="Enabled"
+    fi
+    
+    # Check FTP service
+    if launchctl list | grep -q ftpd 2>/dev/null; then
+        enabled_services+=("FTP")
+        file_sharing_enabled="Enabled"
+    fi
+    
+    # Check NFS (Network File System) - must be actively listening
+    if netstat -an 2>/dev/null | grep -q ":2049.*LISTEN"; then
+        enabled_services+=("NFS")
+        file_sharing_enabled="Enabled"
+    fi
+    
+    # Alternative method: Check using systemsetup (may require admin)
+    local sharing_status=$(systemsetup -getremoteappleevents 2>/dev/null)
+    if [[ "$sharing_status" == *"Remote Apple Events: On"* ]]; then
+        enabled_services+=("Remote Apple Events")
+        file_sharing_enabled="Enabled"
+    fi
+    
+    # Check for listening ports commonly used by file sharing
+    if netstat -an 2>/dev/null | grep -E ":445.*LISTEN|:139.*LISTEN|:548.*LISTEN|:21.*LISTEN|:2049.*LISTEN" >/dev/null; then
+        if [[ "$file_sharing_enabled" == "Disabled" ]]; then
+            enabled_services+=("Unknown File Sharing")
+            file_sharing_enabled="Enabled"
+        fi
+    fi
+    
+    # Set risk level and details
+    if [[ "$file_sharing_enabled" == "Enabled" ]]; then
+        details="Active services: $(IFS=", "; echo "${enabled_services[*]}")"
+        
+        if [[ ${#enabled_services[@]} -gt 2 ]]; then
+            risk_level="HIGH"
+            recommendation="Multiple file sharing services enabled. Review necessity and ensure proper access controls"
+        elif [[ " ${enabled_services[*]} " =~ " FTP " ]]; then
+            risk_level="HIGH"
+            recommendation="FTP file sharing is insecure. Use SFTP or other secure alternatives"
+        else
+            risk_level="MEDIUM"
+            recommendation="File sharing enabled. Ensure proper authentication and network restrictions"
+        fi
+    else
+        details="No active file sharing services detected (SMB, AFP, FTP, NFS all disabled)"
+        risk_level="INFO"
+        recommendation=""
+    fi
+    
+    add_security_finding "Security" "File Sharing Services" "$file_sharing_enabled" "$details" "$risk_level" "$recommendation"
+}
+
+check_airdrop_status() {
+    log_message "INFO" "Checking AirDrop status..." "SECURITY"
+    
+    local airdrop_status="Disabled"
+    local details=""
+    local risk_level="INFO"
+    local recommendation=""
+    
+    # Check definitive AirDrop status via system preferences
+    local discoverable_mode=$(defaults read com.apple.sharingd DiscoverableMode 2>/dev/null)
+    
+    if [[ "$discoverable_mode" == "Off" || -z "$discoverable_mode" ]]; then
+        airdrop_status="Disabled"
+        details="AirDrop is disabled (DiscoverableMode: Off)"
+        risk_level="INFO"
+        recommendation=""
+    elif [[ "$discoverable_mode" == "Contacts Only" ]]; then
+        airdrop_status="Enabled (Contacts Only)"
+        details="AirDrop is enabled with contacts-only restriction (DiscoverableMode: $discoverable_mode)"
+        risk_level="LOW"
+        recommendation="AirDrop is configured securely for contacts only. Consider disabling completely if not needed for business"
+    elif [[ "$discoverable_mode" == "Everyone" ]]; then
+        airdrop_status="Enabled (Everyone)"
+        details="AirDrop is enabled for everyone (DiscoverableMode: $discoverable_mode)"
+        risk_level="HIGH"
+        recommendation="AirDrop is configured to accept from everyone. Change to 'Contacts Only' or disable in System Settings > General > AirDrop"
+    else
+        airdrop_status="Enabled"
+        details="AirDrop is enabled (DiscoverableMode: $discoverable_mode)"
+        risk_level="MEDIUM"
+        recommendation="Review AirDrop configuration in System Settings > General > AirDrop"
+    fi
+    
+    add_security_finding "Security" "AirDrop Status" "$airdrop_status" "$details" "$risk_level" "$recommendation"
+}
+
+check_rmm_agents() {
+    log_message "INFO" "Checking for RMM agents..." "SECURITY"
+    
+    local rmm_found=()
+    local rmm_processes=""
+    local rmm_apps=""
+    
+    # Common RMM agent process names and signatures (matching Windows detection)
+    local rmm_patterns=(
+        "kaseya"
+        "agentmon"
+        "n-able"
+        "ninja.*rmm"
+        "ninja.*one"
+        "ninja.*agent"
+        "datto.*rmm"
+        "centrastage"
+        "autotask"
+        "atera.*agent"
+        "continuum.*agent"
+        "labtech"
+        "ltservice"
+        "connectwise.*automate"
+        "solar.*winds.*rmm"
+        "n-central"
+        "syncro.*agent"
+        "repairshopr"
+        "pulseway"
+        "manageengine"
+        "desktop.*central"
+        "auvik"
+        "prtg"
+        "whatsup.*gold"
+        "crowdstrike"
+        "falcon.*sensor"
+        "sentinelone"
+        "sentinel.*agent"
+        "huntress"
+        "bitdefender.*gravity"
+        "gravityzone"
+        "logmein.*central"
+        "gotoassist.*corporate"
+        "bomgar"
+        "beyondtrust.*remote"
+    )
+    
+    # Check running processes for RMM signatures
+    for pattern in "${rmm_patterns[@]}"; do
+        if ps -eo comm | grep -qi "$pattern"; then
+            local found_processes=$(ps -eo comm | grep -i "$pattern" | sort -u | tr '\n' ',' | sed 's/,$//')
+            if [[ -n "$found_processes" ]]; then
+                rmm_found+=("$found_processes")
+            fi
+        fi
+    done
+    
+    # Check installed applications for RMM agent platforms (matching Windows detection)
+    local app_paths=(
+        "/Applications/Kaseya Agent.app"
+        "/Applications/N-able Agent.app"
+        "/Applications/Datto RMM.app"
+        "/Applications/NinjaRMM.app"
+        "/Applications/NinjaOne.app"
+        "/Applications/Atera Agent.app"
+        "/Applications/ConnectWise Automate.app"
+        "/Applications/Syncro.app"
+        "/Applications/Pulseway.app"
+        "/Applications/ManageEngine Desktop Central.app"
+        "/Applications/Auvik.app"
+        "/Applications/PRTG.app"
+        "/Applications/CrowdStrike Falcon.app"
+        "/Applications/SentinelOne.app"
+        "/Applications/Huntress.app"
+        "/Applications/Bitdefender GravityZone.app"
+        "/Applications/LogMeIn Central.app"
+        "/Applications/BeyondTrust.app"
+        "/Library/Application Support/Kaseya"
+        "/Library/Application Support/N-able"
+        "/Library/Application Support/Datto"
+        "/Library/Application Support/NinjaRMM"
+        "/Library/Application Support/NinjaOne"
+        "/Library/Application Support/Atera"
+        "/Library/Application Support/ConnectWise"
+        "/Library/Application Support/Syncro"
+        "/Library/Application Support/Pulseway"
+        "/Library/Application Support/ManageEngine"
+        "/Library/Application Support/CrowdStrike"
+        "/Library/Application Support/SentinelOne"
+        "/Library/Application Support/Huntress"
+        "/Library/Application Support/Bitdefender"
+        "/usr/local/bin/kaseya"
+        "/usr/local/bin/ninja"
+        "/usr/local/bin/crowdstrike"
+        "/opt/kaseya"
+        "/opt/n-able"
+        "/opt/datto"
+        "/opt/ninja"
+        "/opt/crowdstrike"
+        "/opt/sentinelone"
+    )
+    
+    for app_path in "${app_paths[@]}"; do
+        if [[ -e "$app_path" ]]; then
+            local app_name=$(basename "$app_path" .app)
+            rmm_found+=("$app_name")
+        fi
+    done
+    
+    # Report findings
+    if [[ ${#rmm_found[@]} -gt 0 ]]; then
+        local rmm_list=$(printf '%s,' "${rmm_found[@]}" | sed 's/,$//')
+        local rmm_count=${#rmm_found[@]}
+        
+        if [[ $rmm_count -gt 2 ]]; then
+            local risk_level="HIGH"
+            local recommendation="Multiple RMM agents detected. Review all remote access tools for security and business justification. Remove unauthorized tools immediately."
+        else
+            local risk_level="MEDIUM"
+            local recommendation="RMM agents detected. Verify these tools are authorized and properly secured with strong authentication."
+        fi
+        
+        add_security_finding "Security" "RMM Agents" "$rmm_count agents" "Found: $rmm_list" "$risk_level" "$recommendation"
+    else
+        add_security_finding "Security" "RMM Agents" "None Detected" "No remote monitoring/management agents found" "INFO" ""
+    fi
+}
+
+check_backup_solutions() {
+    log_message "INFO" "Checking backup solutions..." "SECURITY"
+    
+    local backup_found=()
+    local backup_services=""
+    
+    # Common backup solution patterns for macOS
+    local backup_apps=(
+        "/Applications/Time Machine.app"
+        "/Applications/Backblaze.app"
+        "/Applications/Carbonite.app"
+        "/Applications/CrashPlan.app"
+        "/Applications/Arq.app"
+        "/Applications/ChronoSync.app"
+        "/Applications/SuperDuper!.app"
+        "/Applications/Carbon Copy Cloner.app"
+        "/Applications/Get Backup Pro.app"
+        "/Applications/Acronis True Image.app"
+        "/Applications/iCloud.app"
+        "/System/Library/CoreServices/Applications/Backup and Restore.app"
+    )
+    
+    # Check installed backup applications
+    for app_path in "${backup_apps[@]}"; do
+        if [[ -e "$app_path" ]]; then
+            local app_name=$(basename "$app_path" .app)
+            backup_found+=("$app_name")
+        fi
+    done
+    
+    # Check for running backup processes
+    local backup_processes=(
+        "backupd"
+        "tmutil"
+        "bzagent"
+        "carbonite"
+        "crashplan"
+        "arq"
+        "chronosync"
+        "ccc"
+        "acronis"
+    )
+    
+    for process in "${backup_processes[@]}"; do
+        if pgrep -x "$process" >/dev/null 2>&1; then
+            backup_found+=("$process (running)")
+        fi
+    done
+    
+    # Check Time Machine status specifically
+    if command -v tmutil >/dev/null 2>&1; then
+        # Check if Time Machine is configured by looking for destination
+        local tm_destination=$(tmutil destinationinfo 2>/dev/null)
+        
+        if [[ -n "$tm_destination" ]]; then
+            # Check if Time Machine is currently running a backup
+            local tm_running=$(tmutil status 2>/dev/null | grep -E "Running.*[^0]" 2>/dev/null)
+            if [[ -n "$tm_running" ]]; then
+                backup_found+=("Time Machine (backup in progress)")
+            fi
+            
+            # Get detailed Time Machine backup information
+            local latest_backup=$(tmutil latestbackup 2>/dev/null)
+            local backup_count=0
+            local listbackups_output=$(tmutil listbackups 2>&1)
+            
+            # Check if we have actual backups (not just an error message)
+            if [[ "$listbackups_output" != *"No machine directory found"* ]] && [[ -n "$listbackups_output" ]]; then
+                backup_count=$(echo "$listbackups_output" | wc -l | tr -d ' ')
+            fi
+            
+            if [[ $backup_count -gt 0 && -n "$latest_backup" && "$latest_backup" != "No backup found" ]]; then
+                # We have completed backups
+                backup_found+=("Time Machine (active)")
+                
+                # Extract date from backup path (format: /Volumes/BackupDisk/Backups.backupdb/MacName/YYYY-MM-DD-HHMMSS)
+                local backup_date=$(basename "$latest_backup" | sed 's/-.*//')
+                if [[ "$backup_date" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]]; then
+                    # Convert date format for better readability
+                    local formatted_date=$(date -j -f "%Y-%m-%d" "$backup_date" "+%B %d, %Y" 2>/dev/null || echo "$backup_date")
+                    add_security_finding "System" "Time Machine Backups" "$backup_count backups" "Latest: $formatted_date" "INFO" "Regular backups detected - verify backup integrity periodically"
+                else
+                    add_security_finding "System" "Time Machine Backups" "$backup_count backups" "Latest backup path: $latest_backup" "INFO" "Regular backups detected - verify backup integrity periodically"
+                fi
+            else
+                # Time Machine is configured but no backups completed yet
+                add_security_finding "System" "Time Machine Backups" "Configured" "No backups completed yet" "LOW" "Time Machine is configured but no backups have completed. Verify backup destination is accessible"
+            fi
+        fi
+    fi
+    
+    # Report findings
+    if [[ ${#backup_found[@]} -gt 0 ]]; then
+        local backup_list=$(printf '%s,' "${backup_found[@]}" | sed 's/,$//')
+        local backup_count=${#backup_found[@]}
+        
+        add_security_finding "System" "Backup Solutions" "$backup_count solutions" "Found: $backup_list" "INFO" "Backup solutions detected - verify they are configured and running properly"
+    else
+        add_security_finding "System" "Backup Solutions" "None Detected" "No backup solutions found" "MEDIUM" "Consider implementing a backup solution to protect against data loss"
+    fi
+}
+
+check_managed_login() {
+    log_message "INFO" "Checking managed login providers..." "SECURITY"
+    
+    local managed_login_found=()
+    local login_type="Standard"
+    
+    # Check for Jamf Connect
+    if [[ -e "/Applications/Jamf Connect.app" ]] || [[ -e "/usr/local/bin/jamf" ]]; then
+        managed_login_found+=("Jamf Connect")
+    fi
+    
+    # Check for NoMAD/Kandji login
+    if [[ -e "/Applications/NoMAD.app" ]] || [[ -e "/Library/Application Support/Kandji" ]]; then
+        managed_login_found+=("NoMAD/Kandji")
+    fi
+    
+    # Check for Platform SSO (Entra ID integration)
+    if defaults read com.apple.extensiond 2>/dev/null | grep -q "com.microsoft.CompanyPortal.ssoextension"; then
+        managed_login_found+=("Microsoft Platform SSO")
+    fi
+
+    # Report managed login findings
+    if [[ ${#managed_login_found[@]} -gt 0 ]]; then
+        local managed_list=$(printf '%s,' "${managed_login_found[@]}" | sed 's/,$//')
+        login_type="Managed"
+
+        add_security_finding "Authentication" "Login Management" "$login_type" "Managed providers: $managed_list" "INFO" ""
+    else
+        add_security_finding "Authentication" "Login Management" "$login_type" "No managed login providers detected - using standard macOS authentication" "INFO" ""
+    fi
+}
+
+check_icloud_status() {
+    log_message "INFO" "Checking iCloud status..." "SECURITY"
+
+    # Check if user is signed into iCloud using accurate AccountID detection
+    # Handle sudo case - need to read from actual user's preferences, not root's
+    local actual_user="${SUDO_USER:-$(whoami)}"
+    local user_home=$(eval echo "~$actual_user")
+    local icloud_data
+
+    if [[ "$EUID" -eq 0 && -n "$SUDO_USER" ]]; then
+        # Running as sudo - read from the actual user's preferences
+        icloud_data=$(sudo -u "$SUDO_USER" defaults read MobileMeAccounts Accounts 2>/dev/null)
+    else
+        # Normal user execution
+        icloud_data=$(defaults read MobileMeAccounts Accounts 2>/dev/null)
+    fi
+    local icloud_account_id=$(echo "$icloud_data" | grep "AccountID" | cut -d'"' -f2)
+
+    # DEBUG OUTPUT
+
+    if [[ -n "$icloud_account_id" ]]; then
+        # User is signed into iCloud - extract actual email
+        add_security_finding "Security" "iCloud Status" "Signed In" "Account: $icloud_account_id" "INFO" ""
+
+        # Check iCloud backup status - look for actual service data
+        local backup_enabled=$(echo "$icloud_data" | grep -A 5 "MOBILE_DOCUMENTS" | grep "Enabled = 1")
+        if [[ -n "$backup_enabled" ]]; then
+            add_security_finding "Security" "iCloud Backup" "Enabled" "iCloud Drive and backup services active" "INFO" ""
+        else
+            add_security_finding "Security" "iCloud Backup" "Disabled" "iCloud backup services not active" "INFO" ""
+        fi
+    else
+        # User not signed into iCloud
+        add_security_finding "Security" "iCloud Status" "Not Signed In" "No iCloud account configured" "LOW" "Consider signing into iCloud for backup and device synchronization"
+        add_security_finding "Security" "iCloud Backup" "Not Available" "Cannot backup without iCloud account" "LOW" "Sign into iCloud and enable backup for data protection"
+    fi
 }
 
 check_find_my_status() {
     log_message "INFO" "Checking Find My status..." "SECURITY"
-    
-    local find_my_status="Unknown"
-    local find_my_details=""
-    local risk_level="INFO"
-    local recommendation=""
-    local detection_method=""
-    
-    # Method 1: Check modern Find My status (macOS 10.15+)
-    local find_my_enabled=$(defaults read com.apple.icloud.fmfd FMFAllowed 2>/dev/null)
-    if [[ -n "$find_my_enabled" ]]; then
-        detection_method="Modern Find My service"
+
+    # Check Find My Mac status using accurate service detection
+    local actual_user="${SUDO_USER:-$(whoami)}"
+    local icloud_data
+
+    if [[ "$EUID" -eq 0 && -n "$SUDO_USER" ]]; then
+        icloud_data=$(sudo -u "$SUDO_USER" defaults read MobileMeAccounts Accounts 2>/dev/null)
     else
-        # Method 2: Try legacy Find My Mac preference
-        find_my_enabled=$(defaults read com.apple.findmymac FMMEnabled 2>/dev/null)
-        if [[ -n "$find_my_enabled" ]]; then
-            detection_method="Legacy Find My Mac"
-        fi
+        icloud_data=$(defaults read MobileMeAccounts Accounts 2>/dev/null)
     fi
-    
-    # Method 3: Try user-level Find My settings
-    if [[ -z "$find_my_enabled" ]]; then
-        find_my_enabled=$(defaults read ~/Library/Preferences/com.apple.icloud.fmfd FMFAllowed 2>/dev/null)
-        if [[ -n "$find_my_enabled" ]]; then
-            detection_method="User Find My preferences"
-        fi
-    fi
-    
-    # Method 4: Check for Find My processes/services
-    if [[ -z "$find_my_enabled" ]]; then
-        if pgrep -x "FindMyDevice" >/dev/null 2>&1 || pgrep -x "fmfd" >/dev/null 2>&1; then
-            find_my_enabled="1"
-            detection_method="Find My process detection"
-        fi
-    fi
-    
-    # Method 5: Check for iCloud Sign-in and Find My capability
-    if [[ -z "$find_my_enabled" ]]; then
-        # Check if iCloud is signed in (prerequisite for Find My)
-        local icloud_account=$(defaults read MobileMeAccounts Accounts 2>/dev/null | grep -A1 "AccountID" | grep -o '"[^"]*"' | head -1 | tr -d '"' 2>/dev/null)
-        if [[ -n "$icloud_account" && "$icloud_account" != "" ]]; then
-            # If iCloud is signed in, check for Find My capability
-            if [[ -d "/System/Library/PrivateFrameworks/FindMyDevice.framework" ]] || [[ -f "/usr/libexec/fmfd" ]]; then
-                find_my_enabled="inferred"
-                detection_method="iCloud signed in with Find My capability"
-            fi
-        fi
-    fi
-    
-    # Clean the value
-    find_my_enabled=$(echo "$find_my_enabled" | tr -d '[:space:]')
-    
-    # Determine status based on findings
-    if [[ "$find_my_enabled" == "1" ]]; then
-        find_my_status="Enabled"
-        find_my_details="Find My is active for device location and remote management ($detection_method)"
-        
-        # Check if activation lock is enabled (T2/Apple Silicon indicator)
-        local activation_lock_status="Unknown"
-        if nvram -p 2>/dev/null | grep -qi "fmm-mobileme-token-hash\|fmm-computer-name"; then
-            activation_lock_status="Enabled"
-            find_my_details="$find_my_details with Activation Lock"
+
+    local find_my_service=$(echo "$icloud_data" | grep -A 8 "FIND_MY_MAC")
+
+
+    if [[ -n "$find_my_service" ]]; then
+        # Check if Find My service is properly configured (has authentication and hostnames)
+        local find_my_hostname=$(echo "$find_my_service" | grep "hostname")
+        local find_my_auth=$(echo "$find_my_service" | grep "authMechanism")
+
+
+        if [[ -n "$find_my_hostname" && -n "$find_my_auth" ]]; then
+            add_security_finding "Security" "Find My" "Enabled" "Find My Mac service is active and configured in iCloud account" "INFO" ""
         else
-            # Check for Apple Silicon/T2 security chip presence
-            if sysctl -n machdep.cpu.brand_string 2>/dev/null | grep -qi "Apple\|M1\|M2\|M3"; then
-                activation_lock_status="Likely Enabled (Apple Silicon)"
-            elif system_profiler SPiBridgeDataType 2>/dev/null | grep -q "T2"; then
-                activation_lock_status="Likely Enabled (T2 Chip)"  
-            else
-                activation_lock_status="Not Available (Intel without T2)"
-            fi
-            find_my_details="$find_my_details, Activation Lock: $activation_lock_status"
+            add_security_finding "Security" "Find My" "Partially Configured" "Find My Mac service present but incomplete configuration" "LOW" "Complete Find My setup in System Preferences > Apple ID > iCloud"
         fi
-        
-    elif [[ "$find_my_enabled" == "0" ]]; then
-        find_my_status="Disabled"
-        find_my_details="Find My is not enabled ($detection_method)"
-        risk_level="MEDIUM"
-        recommendation="Enable Find My for device tracking and theft protection"
-        
-    elif [[ "$find_my_enabled" == "inferred" ]]; then
-        find_my_status="Available (iCloud Active)"
-        find_my_details="iCloud signed in with Find My capability present - Find My functionality is available ($detection_method)"
-        risk_level="INFO"
-        recommendation=""
-        
     else
-        # Check if not signed into iCloud at all
-        local icloud_account=$(defaults read MobileMeAccounts Accounts 2>/dev/null | grep -A1 "AccountID" | grep -o '"[^"]*"' | head -1 | tr -d '"' 2>/dev/null)
-        if [[ -z "$icloud_account" || "$icloud_account" == "" ]]; then
-            find_my_status="Not Available"
-            find_my_details="Not signed into iCloud - Find My requires iCloud account"
-            risk_level="LOW"
-            recommendation="Sign into iCloud and enable Find My for device security"
+        # No iCloud account or Find My service not configured
+        local icloud_account_id=$(echo "$icloud_data" | grep "AccountID")
+        if [[ -n "$icloud_account_id" ]]; then
+            add_security_finding "Security" "Find My" "Not Configured" "iCloud account present but Find My not set up" "LOW" "Enable Find My for device security and theft protection"
         else
-            find_my_status="Cannot Determine"
-            find_my_details="Unable to determine Find My status despite iCloud sign-in"
-            risk_level="LOW"
-            recommendation="Find My status unclear - may be controlled by system policy or MDM"
+            add_security_finding "Security" "Find My" "Not Available" "Requires iCloud account" "LOW" "Sign into iCloud to enable Find My"
         fi
     fi
-    
-    add_security_finding "Device Security" "Find My" "$find_my_status" "$find_my_details" "$risk_level" "$recommendation"
 }
 
-check_device_information() {
-    log_message "INFO" "Checking device information..." "SECURITY"
-    
-    # Get serial number
-    local serial_number=$(system_profiler SPHardwareDataType | grep "Serial Number" | awk '{print $4}' 2>/dev/null || echo "Unknown")
-    if [[ -z "$serial_number" || "$serial_number" == "" ]]; then
-        serial_number=$(ioreg -c IOPlatformExpertDevice -d 2 | awk -F\" '/IOPlatformSerialNumber/{print $(NF-1)}' 2>/dev/null || echo "Unknown")
-    fi
-    
-    # Get hardware UUID
-    local hardware_uuid=$(system_profiler SPHardwareDataType | grep "Hardware UUID" | awk '{print $3}' 2>/dev/null || echo "Unknown")
-    
-    # Get model information
-    local model_name=$(sysctl -n hw.model 2>/dev/null || echo "Unknown")
-    local model_identifier=$(system_profiler SPHardwareDataType | grep "Model Identifier" | awk '{print $3}' 2>/dev/null || echo "Unknown")
-    
-    add_security_finding "Device Info" "Serial Number" "$serial_number" "Hardware serial number for device identification" "INFO" ""
-    add_security_finding "Device Info" "Hardware UUID" "$hardware_uuid" "Unique hardware identifier" "INFO" ""
-    add_security_finding "Device Info" "Model Information" "$model_identifier" "Model: $model_name" "INFO" ""
-}
+check_screen_sharing_settings() {
+    log_message "INFO" "Checking screen sharing settings..." "SECURITY"
 
-# Helper function to add security findings to the array
-add_security_finding() {
-    local category="$1"
-    local item="$2"
-    local value="$3"
-    local details="$4"
-    local risk_level="$5"
-    local recommendation="$6"
-    
-    SECURITY_FINDINGS+=("{\"category\":\"$category\",\"item\":\"$item\",\"value\":\"$value\",\"details\":\"$details\",\"risk_level\":\"$risk_level\",\"recommendation\":\"$recommendation\"}")
+    # Check if Screen Sharing is enabled
+    local screen_sharing_enabled=false
+
+    # Check system preferences
+    local ssh_enabled=$(systemsetup -getremotelogin 2>/dev/null | grep -c "On")
+    local vnc_enabled=$(ps aux | grep -c "[S]creenSharingAgent")
+
+    if [[ "$vnc_enabled" -gt 0 ]]; then
+        screen_sharing_enabled=true
+        add_security_finding "Security" "Screen Sharing" "Enabled" "VNC/Screen Sharing is active" "MEDIUM" "Screen sharing enabled - ensure strong passwords and network access controls"
+    else
+        add_security_finding "Security" "Screen Sharing" "Disabled" "Screen sharing services not active" "INFO" ""
+    fi
 }
 
 # Function to get findings for report generation

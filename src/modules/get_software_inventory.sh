@@ -68,16 +68,38 @@ collect_applications_inventory() {
 check_critical_software() {
     log_message "INFO" "Checking critical software versions..." "SOFTWARE"
     
-    # Check critical applications (bash 3.2 compatible)
+    # Check critical applications (bash 3.2 compatible) - prioritize by security importance
+    
+    # Browsers (security critical)
     check_single_application "Google Chrome" "/Applications/Google Chrome.app"
-    check_single_application "Mozilla Firefox" "/Applications/Firefox.app"
-    check_single_application "Safari" "/Applications/Safari.app"
+    check_single_application "Mozilla Firefox" "/Applications/Firefox.app" 
+    check_single_application "Microsoft Edge" "/Applications/Microsoft Edge.app"
+    # Safari is reported separately as default macOS browser
+    
+    # Communication & Remote Access (business critical)
     check_single_application "Zoom" "/Applications/zoom.us.app"
     check_single_application "Slack" "/Applications/Slack.app"
     check_single_application "Microsoft Teams" "/Applications/Microsoft Teams.app"
-    check_single_application "Dropbox" "/Applications/Dropbox.app"
+    check_single_application "Discord" "/Applications/Discord.app"
+    check_single_application "TeamViewer" "/Applications/TeamViewer.app"
     
-    # Special handling for Office suite and Adobe
+    # Cloud Storage & Sync (data security)
+    check_single_application "Dropbox" "/Applications/Dropbox.app"
+    check_single_application "Google Drive" "/Applications/Google Drive.app"
+    check_single_application "OneDrive" "/Applications/OneDrive.app"
+    check_single_application "iCloud Drive" "/System/Applications/iCloud Drive.app"
+    
+    # Development Tools (if present)
+    check_single_application "Docker Desktop" "/Applications/Docker.app"
+    check_single_application "Visual Studio Code" "/Applications/Visual Studio Code.app"
+    check_single_application "JetBrains Toolbox" "/Applications/JetBrains Toolbox.app"
+    
+    # Security & VPN
+    check_single_application "1Password" "/Applications/1Password 7 - Password Manager.app"
+    check_single_application "Malwarebytes" "/Applications/Malwarebytes for Mac.app"
+    check_single_application "Little Snitch" "/Applications/Little Snitch.app"
+    
+    # Special handling for Office suite and Adobe (high priority due to update frequency)
     check_microsoft_office
     check_adobe_acrobat
 }
@@ -224,16 +246,94 @@ check_remote_access_software() {
         "VNC Viewer.app"
         "Screens.app"
         "Jump Desktop.app"
+        "ScreenConnect Client.app"
+        "ConnectWise Control.app"
+        "Splashtop Business.app"
+        "Splashtop Streamer.app"
+        "Apple Remote Desktop.app"
+        "RealVNC.app"
+        "TightVNC.app"
+        "UltraVNC.app"
+        "Parallels Access.app"
+        "Remotix.app"
+        "Microsoft Remote Desktop.app"
     )
     
     local found_remote=()
     
+    # Check standard Applications folder
     for remote_app in "${remote_apps[@]}"; do
         if [[ -d "/Applications/$remote_app" ]]; then
             local app_name=$(basename "$remote_app" .app)
             found_remote+=("$app_name")
         fi
     done
+    
+    # Check for remote access software by bundle identifier (more reliable)
+    local bundle_id_patterns=(
+        "com.screenconnect.client:ScreenConnect"
+        "com.connectwise.control:ConnectWise Control"  
+        "com.teamviewer.TeamViewer:TeamViewer"
+        "com.anydesk.AnyDesk:AnyDesk"
+        "com.google.chromeremotedesktop:Chrome Remote Desktop"
+        "com.logmein.LogMeIn:LogMeIn"
+        "com.gotomypc.GoToMyPC:GoToMyPC"
+        "com.realvnc.VNCViewer:RealVNC"
+        "com.osxvnc.VNCViewer:VNC Viewer"
+        "com.parallels.ParallelsAccess:Parallels Access"
+        "com.apple.RemoteDesktop:Apple Remote Desktop"
+        "com.edovia.SplashDesktop:Splashtop Desktop"
+        "com.splashtop.business:Splashtop Business"
+        "com.splashtop.streamer:Splashtop Streamer"
+    )
+    
+    # Check all apps for remote access bundle identifiers
+    for app_path in /Applications/*.app /Applications/*/*.app; do
+        if [[ -d "$app_path" && -f "$app_path/Contents/Info.plist" ]]; then
+            local bundle_id=$(defaults read "$app_path/Contents/Info.plist" CFBundleIdentifier 2>/dev/null)
+            if [[ -n "$bundle_id" ]]; then
+                for pattern in "${bundle_id_patterns[@]}"; do
+                    local id_pattern="${pattern%:*}"
+                    local display_name="${pattern#*:}"
+                    if [[ "$bundle_id" == "$id_pattern" ]]; then
+                        found_remote+=("$display_name")
+                        break
+                    fi
+                done
+            fi
+        fi
+    done
+    
+    # Also check for ScreenConnect/ConnectWise in alternate locations and patterns  
+    local screenconnect_patterns=(
+        "/Applications/ScreenConnect Client*.app"
+        "/Applications/*ScreenConnect*.app"
+        "/Applications/ConnectWise*.app"
+        "/Applications/*ConnectWise*.app"
+        "/opt/screenconnect"
+        "/usr/local/bin/screenconnect"
+    )
+    
+    for pattern in "${screenconnect_patterns[@]}"; do
+        if ls $pattern >/dev/null 2>&1; then
+            # Extract a clean name for ScreenConnect variations
+            if [[ "$pattern" == *"ScreenConnect"* ]]; then
+                found_remote+=("ScreenConnect")
+            elif [[ "$pattern" == *"ConnectWise"* ]]; then
+                found_remote+=("ConnectWise Control")
+            fi
+            break  # Only add once even if multiple matches
+        fi
+    done
+    
+    # Remove duplicates
+    local unique_remote=()
+    for app in "${found_remote[@]}"; do
+        if [[ ! " ${unique_remote[*]} " =~ " ${app} " ]]; then
+            unique_remote+=("$app")
+        fi
+    done
+    found_remote=("${unique_remote[@]}")
     
     if [[ ${#found_remote[@]} -gt 0 ]]; then
         local remote_list=$(IFS=", "; echo "${found_remote[*]}")

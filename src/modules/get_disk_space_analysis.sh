@@ -12,14 +12,8 @@ get_disk_space_analysis_data() {
     # Initialize findings array
     DISK_FINDINGS=()
     
-    # Analyze disk usage for all mounted volumes
+    # Analyze disk usage for all mounted volumes (basic disk space check only)
     analyze_disk_usage
-    
-    # Check for large files/directories
-    check_large_files
-    
-    # Check system storage optimization
-    check_storage_optimization
     
     log_message "SUCCESS" "Disk space analysis completed - ${#DISK_FINDINGS[@]} findings" "STORAGE"
 }
@@ -69,125 +63,10 @@ analyze_disk_usage() {
         local details="Used: $used ($percent%), Available: $available, Total: $size"
         add_disk_finding "Storage" "Disk Usage: $mount_point" "$percent% used" "$details" "$risk_level" "$recommendation"
         
-        # Special handling for root volume
-        if [[ "$mount_point" == "/" ]]; then
-            analyze_root_volume_breakdown "$available"
-        fi
         
     done < <(df -h | grep -E '^/dev/')
 }
 
-analyze_root_volume_breakdown() {
-    local available="$1"
-    
-    log_message "INFO" "Analyzing root volume space breakdown..." "STORAGE"
-    
-    # Check major directories for space usage
-    local major_dirs=("/Applications" "/Users" "/System" "/Library" "/private/var" "/usr")
-    
-    for dir in "${major_dirs[@]}"; do
-        if [[ -d "$dir" ]]; then
-            local dir_size=$(du -sh "$dir" 2>/dev/null | awk '{print $1}' || echo "Unknown")
-            if [[ "$dir_size" != "Unknown" ]]; then
-                add_disk_finding "Storage" "Directory: $dir" "$dir_size" "Space usage for $dir" "INFO" ""
-            fi
-        fi
-    done
-    
-    # Check for large log files
-    check_log_file_sizes
-}
-
-check_large_files() {
-    log_message "INFO" "Checking for large files..." "STORAGE"
-    
-    # Look for files larger than 1GB in common locations
-    local large_files_found=false
-    local search_paths=("/Applications" "/Users/$USER" "/Library" "/private/tmp")
-    
-    for search_path in "${search_paths[@]}"; do
-        if [[ -d "$search_path" ]]; then
-            # Find files larger than 1GB (using a reasonable timeout)
-            local large_files=$(timeout 30 find "$search_path" -type f -size +1G 2>/dev/null | head -10)
-            
-            if [[ -n "$large_files" ]]; then
-                large_files_found=true
-                local file_count=$(echo "$large_files" | wc -l | tr -d ' ')
-                
-                # Get size of largest file
-                local largest_file=$(echo "$large_files" | head -1)
-                local largest_size="Unknown"
-                if [[ -n "$largest_file" ]]; then
-                    largest_size=$(du -sh "$largest_file" 2>/dev/null | awk '{print $1}' || echo "Unknown")
-                fi
-                
-                local risk_level="LOW"
-                local recommendation="Review large files for cleanup opportunities"
-                
-                if [[ $file_count -gt 5 ]]; then
-                    risk_level="MEDIUM"
-                    recommendation="Multiple large files found. Review and clean up unnecessary files to free space"
-                fi
-                
-                add_disk_finding "Storage" "Large Files in $search_path" "$file_count files >1GB" "Largest: $largest_size" "$risk_level" "$recommendation"
-            fi
-        fi
-    done
-    
-    if [[ "$large_files_found" == false ]]; then
-        add_disk_finding "Storage" "Large Files" "None found" "No files >1GB detected in common locations" "INFO" ""
-    fi
-}
-
-check_log_file_sizes() {
-    log_message "INFO" "Checking system log file sizes..." "STORAGE"
-    
-    local log_dirs=("/private/var/log" "/Library/Logs" "$HOME/Library/Logs")
-    local total_log_size=0
-    local large_logs_found=false
-    
-    for log_dir in "${log_dirs[@]}"; do
-        if [[ -d "$log_dir" ]]; then
-            # Get total size of log directory
-            local dir_size_bytes=$(du -sk "$log_dir" 2>/dev/null | awk '{print $1}' || echo "0")
-            total_log_size=$((total_log_size + dir_size_bytes))
-            
-            # Check for individual large log files
-            local large_logs=$(find "$log_dir" -type f -size +100M 2>/dev/null | head -5)
-            if [[ -n "$large_logs" ]]; then
-                large_logs_found=true
-                local log_count=$(echo "$large_logs" | wc -l | tr -d ' ')
-                
-                local risk_level="LOW"
-                local recommendation="Large log files detected. Consider log rotation or cleanup"
-                
-                if [[ $log_count -gt 3 ]]; then
-                    risk_level="MEDIUM"
-                    recommendation="Multiple large log files found. Implement log rotation and cleanup"
-                fi
-                
-                add_disk_finding "Storage" "Large Log Files in $log_dir" "$log_count files >100MB" "Review log file management" "$risk_level" "$recommendation"
-            fi
-        fi
-    done
-    
-    # Report total log space usage
-    if [[ $total_log_size -gt 0 ]]; then
-        local total_log_size_mb=$((total_log_size / 1024))
-        local risk_level="INFO"
-        local recommendation=""
-        
-        if [[ $total_log_size_mb -gt 5000 ]]; then  # More than 5GB
-            risk_level="MEDIUM"
-            recommendation="Log files consuming significant disk space. Review log retention policies"
-        elif [[ $total_log_size_mb -gt 2000 ]]; then  # More than 2GB
-            risk_level="LOW"
-            recommendation="Consider reviewing log file sizes and retention"
-        fi
-        
-        add_disk_finding "Storage" "Total Log File Usage" "${total_log_size_mb}MB" "Combined size of all log directories" "$risk_level" "$recommendation"
-    fi
-}
 
 check_storage_optimization() {
     log_message "INFO" "Checking storage optimization features..." "STORAGE"
@@ -241,36 +120,6 @@ check_time_machine_snapshots() {
     fi
 }
 
-check_trash_usage() {
-    log_message "INFO" "Checking Trash usage..." "STORAGE"
-    
-    local trash_dir="$HOME/.Trash"
-    if [[ -d "$trash_dir" ]]; then
-        local trash_size=$(du -sh "$trash_dir" 2>/dev/null | awk '{print $1}' || echo "0K")
-        local trash_items=$(find "$trash_dir" -type f 2>/dev/null | wc -l | tr -d ' ')
-        
-        local risk_level="INFO"
-        local recommendation=""
-        
-        # Convert size to MB for comparison (rough estimate)
-        local size_mb=0
-        if echo "$trash_size" | grep -q "G"; then
-            size_mb=$(echo "$trash_size" | sed 's/G.*//' | awk '{print $1 * 1024}')
-        elif echo "$trash_size" | grep -q "M"; then
-            size_mb=$(echo "$trash_size" | sed 's/M.*//')
-        fi
-        
-        if [[ $size_mb -gt 1000 ]]; then  # More than 1GB
-            risk_level="MEDIUM"
-            recommendation="Trash contains significant data ($trash_size). Empty trash to free disk space"
-        elif [[ $size_mb -gt 500 ]]; then  # More than 500MB
-            risk_level="LOW"
-            recommendation="Consider emptying trash to free up disk space"
-        fi
-        
-        add_disk_finding "Storage" "Trash Usage" "$trash_size" "$trash_items items in trash" "$risk_level" "$recommendation"
-    fi
-}
 
 # Helper function to add disk findings to the array
 add_disk_finding() {

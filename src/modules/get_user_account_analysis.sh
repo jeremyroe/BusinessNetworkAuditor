@@ -240,8 +240,9 @@ check_administrator_accounts() {
         add_user_finding "Security" "Administrator Account Issues" "$admin_count accounts" "$admin_details" "$risk_level" "$recommendation"
     fi
     
-    # Check for root account only if it's enabled (which is unusual)
-    if ! dscl . read /Users/root AuthenticationAuthority 2>/dev/null | grep -q "disabled"; then
+    # Check root account status - it should be disabled by default
+    local root_auth=$(dscl . read /Users/root AuthenticationAuthority 2>/dev/null)
+    if [[ -n "$root_auth" && ! "$root_auth" =~ ";DisabledUser;" ]]; then
         add_user_finding "Security" "Root Account" "Enabled" "System root account is active" "MEDIUM" "Consider disabling root account if not needed"
     fi
 }
@@ -283,10 +284,14 @@ check_password_policies() {
     local history="Unknown"
     
     if [[ -n "$global_policy" ]]; then
-        min_length=$(echo "$global_policy" | grep "minChars=" | sed 's/.*minChars=//' | sed 's/[^0-9].*//')
-        complexity=$(echo "$global_policy" | grep "requiresAlpha=" | sed 's/.*requiresAlpha=//' | sed 's/[^0-9].*//')
-        max_age=$(echo "$global_policy" | grep "maxMinutesUntilChangePassword=" | sed 's/.*maxMinutesUntilChangePassword=//' | sed 's/[^0-9].*//')
-        history=$(echo "$global_policy" | grep "usingHistory=" | sed 's/.*usingHistory=//' | sed 's/[^0-9].*//')
+        min_length=$(echo "$global_policy" | grep "minChars=" | sed 's/.*minChars=//' | sed 's/[^0-9].*//' | head -1 | tr -d '\n\r ' || echo "Unknown")
+        [[ -z "$min_length" ]] && min_length="Unknown"
+        complexity=$(echo "$global_policy" | grep "requiresAlpha=" | sed 's/.*requiresAlpha=//' | sed 's/[^0-9].*//' | head -1 | tr -d '\n\r ' || echo "Unknown")
+        [[ -z "$complexity" ]] && complexity="Unknown"
+        max_age=$(echo "$global_policy" | grep "maxMinutesUntilChangePassword=" | sed 's/.*maxMinutesUntilChangePassword=//' | sed 's/[^0-9].*//' | head -1 | tr -d '\n\r ' || echo "Unknown")
+        [[ -z "$max_age" ]] && max_age="Unknown"
+        history=$(echo "$global_policy" | grep "usingHistory=" | sed 's/.*usingHistory=//' | sed 's/[^0-9].*//' | head -1 | tr -d '\n\r ' || echo "Unknown")
+        [[ -z "$history" ]] && history="Unknown"
     fi
     
     # Assess password policy strength
@@ -294,9 +299,15 @@ check_password_policies() {
     local risk_level="INFO"
     local recommendation=""
     
-    if [[ -n "$min_length" && "$min_length" -ge 8 ]]; then
+    # Ensure min_length is clean and numeric
+    min_length=$(echo "$min_length" | tr -d '\n\r ' | sed 's/[^0-9]//g')
+    if [[ -z "$min_length" ]]; then
+        min_length="0"
+    fi
+    
+    if [[ "$min_length" =~ ^[0-9]+$ && "$min_length" -ge 8 ]]; then
         policy_strength="Adequate"
-    elif [[ -n "$min_length" && "$min_length" -lt 8 ]]; then
+    elif [[ "$min_length" =~ ^[0-9]+$ && "$min_length" -lt 8 && "$min_length" -gt 0 ]]; then
         policy_strength="Weak"
         risk_level="MEDIUM"
         recommendation="Password minimum length is less than 8 characters. Increase to at least 8-12 characters"
@@ -374,12 +385,45 @@ check_login_items() {
         add_user_finding "Users" "User Login Items" "$user_login_items items" "Applications launched at user login" "INFO" ""
     fi
     
-    # Check LaunchAgents and LaunchDaemons
-    local launch_agents=$(find /Library/LaunchAgents /System/Library/LaunchAgents ~/Library/LaunchAgents -name "*.plist" 2>/dev/null | wc -l | tr -d ' ')
-    local launch_daemons=$(find /Library/LaunchDaemons /System/Library/LaunchDaemons -name "*.plist" 2>/dev/null | wc -l | tr -d ' ')
+    # Check LaunchAgents and LaunchDaemons with better categorization
+    local system_launch_agents=$(find /System/Library/LaunchAgents -name "*.plist" 2>/dev/null | wc -l | tr -d ' ')
+    local user_launch_agents=$(find /Library/LaunchAgents ~/Library/LaunchAgents -name "*.plist" 2>/dev/null | wc -l | tr -d ' ')
+    local total_launch_agents=$((system_launch_agents + user_launch_agents))
     
-    add_user_finding "System" "Launch Agents" "$launch_agents items" "User-level background processes" "INFO" ""
-    add_user_finding "System" "Launch Daemons" "$launch_daemons items" "System-level background processes" "INFO" ""
+    local system_launch_daemons=$(find /System/Library/LaunchDaemons -name "*.plist" 2>/dev/null | wc -l | tr -d ' ')
+    local user_launch_daemons=$(find /Library/LaunchDaemons -name "*.plist" 2>/dev/null | wc -l | tr -d ' ')
+    local total_launch_daemons=$((system_launch_daemons + user_launch_daemons))
+    
+    # Get count of actually loaded launch items
+    local loaded_items=$(launchctl list 2>/dev/null | wc -l | tr -d ' ')
+    # Subtract header line
+    if [[ $loaded_items -gt 0 ]]; then
+        loaded_items=$((loaded_items - 1))
+    fi
+    
+    # Report with better context
+    local agents_details="Total: $total_launch_agents (System: $system_launch_agents, User: $user_launch_agents)"
+    local daemons_details="Total: $total_launch_daemons (System: $system_launch_daemons, User: $user_launch_daemons)"
+    local loaded_details="Active background processes currently loaded"
+    
+    # Risk assessment for user-installed items
+    local agents_risk="INFO"
+    local agents_recommendation=""
+    if [[ $user_launch_agents -gt 10 ]]; then
+        agents_risk="LOW"
+        agents_recommendation="Review user-installed launch agents for unnecessary or suspicious items"
+    fi
+    
+    local daemons_risk="INFO"
+    local daemons_recommendation=""
+    if [[ $user_launch_daemons -gt 5 ]]; then
+        daemons_risk="LOW"
+        daemons_recommendation="Review user-installed launch daemons for unnecessary or suspicious items"
+    fi
+    
+    add_user_finding "System" "Launch Agents" "$total_launch_agents items" "$agents_details" "$agents_risk" "$agents_recommendation"
+    add_user_finding "System" "Launch Daemons" "$total_launch_daemons items" "$daemons_details" "$daemons_risk" "$daemons_recommendation"
+    add_user_finding "System" "Active Launch Items" "$loaded_items loaded" "$loaded_details" "INFO" ""
 }
 
 check_user_groups() {
