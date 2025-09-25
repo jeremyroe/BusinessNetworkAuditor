@@ -85,7 +85,7 @@ For remote assessment without local installation:
 iex (irm https://raw.githubusercontent.com/jeremyroe/BusinessNetworkAuditor/main/WindowsWorkstationAuditor-Web.ps1)
 
 # Server assessment
-iex (irm https://your-url/WindowsServerAuditor-Web.ps1)
+iex (irm https://raw.githubusercontent.com/jeremyroe/BusinessNetworkAuditor/main/WindowsServerAuditor-Web.ps1)
 
 # Custom output path
 $OutputPath = "C:\RemoteAssessments"; iex (irm https://raw.githubusercontent.com/jeremyroe/BusinessNetworkAuditor/main/WindowsWorkstationAuditor-Web.ps1)
@@ -130,7 +130,19 @@ copy output\*_raw_data.json import\
 - **Systems Overview**: Individual system grades (A-F) by category
 - **Client-Ready Format**: Professional styling optimized for consulting deliverables
 
-**Example Output:** See `examples/Example-Client-IT-Assessment-Report-20240316.html` for a sample aggregated report with sanitized data.
+## Example Reports
+
+The `examples/` directory contains sample reports demonstrating individual system audit outputs:
+
+### Individual System Reports
+- **[Windows Workstation Example](examples/Windows-Workstation-Example-Report.md)** - Complete workstation audit with security findings and recommendations
+- **[Windows Server Example](examples/Windows-Server-Example-Report.md)** - Domain controller audit with Active Directory health analysis
+- **[macOS Workstation Example](examples/macOS-Workstation-Example-Report.md)** - Mac system audit with FileVault, XProtect, and security configuration analysis
+
+### Multi-System Aggregated Reports
+- **[Aggregated HTML Report Example](examples/Aggregated-Report-Example.html)** - Professional client-ready report matching actual NetworkAuditAggregator output format
+
+**Note:** The aggregated report example demonstrates the exact structure, styling, and content format produced by the NetworkAuditAggregator tool when processing real JSON audit files.
 
 ## Requirements
 
