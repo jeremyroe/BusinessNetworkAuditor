@@ -75,12 +75,12 @@
 - **Zone Type:** Active Directory Integrated
 - **Forward Lookup Zones:** 3 zones (acme.local, _msdcs.acme.local, TrustAnchors)
 - **Reverse Lookup Zones:** 2 zones (192.168.1.x, 10.0.0.x)
-- **DNS Forwarders:** 8.8.8.8, 1.1.1.1 ⚠️
+- **DNS Forwarders:** 8.8.8.8, 1.1.1.1 
 - **DNS Scavenging:** Enabled (7-day refresh, 7-day no-refresh)
 
 ### DHCP Server Configuration
 - **Scopes Configured:** 2 scopes
-  - 192.168.1.0/24 (89% utilized) ⚠️
+  - 192.168.1.0/24 (89% utilized) 
   - 10.0.100.0/24 (23% utilized)
 - **Reservations:** 15 static reservations
 - **DHCP Options:** DNS servers, domain name, router configured
@@ -112,7 +112,7 @@
 - **Enabled Users:** 195 users
 - **Disabled Users:** 52 users
 - **Administrative Users:** 12 users
-- **Stale User Accounts (90+ days):** 47 users ⚠️
+- **Stale User Accounts (90+ days):** 47 users 
 - **Stale User Accounts (180+ days):** 23 users
 - **Password Never Expires:** 8 accounts
 
@@ -120,7 +120,7 @@
 - **Total Computer Accounts:** 189 computers
 - **Active Computers:** 145 computers
 - **Stale Computer Accounts (90+ days):** 44 computers
-- **Stale Computer Accounts (180+ days):** 23 computers ⚠️
+- **Stale Computer Accounts (180+ days):** 23 computers 
 - **Operating Systems:**
   - Windows 11: 89 computers
   - Windows 10: 67 computers
@@ -174,7 +174,7 @@
 ### Service Accounts
 - **Identified Service Accounts:** 8 accounts
 - **Password Never Expires:** 6 service accounts
-- **Interactive Logon Allowed:** 2 service accounts ⚠️
+- **Interactive Logon Allowed:** 2 service accounts 
 
 ## Network Configuration
 
@@ -193,7 +193,7 @@
 - **DHCP Server:** Running
 - **Netlogon:** Running
 - **KDC (Kerberos):** Running
-- **Print Spooler:** Running ⚠️
+- **Print Spooler:** Running 
 
 ### Active Network Connections
 - **Established Connections:** 67 connections
@@ -272,8 +272,8 @@
 - **Pending Reboot:** No
 
 ### Available Updates
-- **Security Updates:** 3 available ⚠️
-- **Critical Updates:** 2 available ⚠️
+- **Security Updates:** 3 available 
+- **Critical Updates:** 2 available 
 - **Important Updates:** 3 available
 - **Optional Updates:** 0 available
 
@@ -288,7 +288,7 @@
 - **Scope 192.168.1.0/24:**
   - Range: 192.168.1.50 - 192.168.1.250
   - Total Addresses: 201
-  - Available: 22 (11%) ⚠️
+  - Available: 22 (11%) 
   - In Use: 179 (89%)
   - Reserved: 15 addresses
 
