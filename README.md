@@ -64,8 +64,7 @@ See `examples/` directory for sample reports:
 ## Configuration
 
 Customize settings in configuration files:
-- `config/workstation-audit-config.json` - Windows workstation settings
-- `config/server-audit-config.json` - Windows server settings
-- `config/macos-audit-config.json` - macOS settings
-- `config/aggregator-config.json` - Multi-system report settings
+- `config/audit-config.json` - General audit settings (used by all tools)
+- `config/server-audit-config.json` - Windows server-specific settings
+- `config/macos-audit-config.json` - macOS-specific settings
 
