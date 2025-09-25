@@ -41,30 +41,9 @@ get_system_information_data() {
     
     
     
-    # Detect beta/developer builds and add appropriate risk assessment
-    local build_type="Production"
-    local build_risk="INFO"
-    local build_recommendation=""
-    
-    # Check for beta/developer build indicators
-    if echo "$os_build" | grep -qE "[a-z]$"; then
-        build_type="Beta/Developer Build"
-        build_risk="LOW"
-        build_recommendation="Running a beta or developer build. Consider upgrading to production release for stability and security"
-    elif echo "$os_version" | grep -qE "beta|Beta|BETA"; then
-        build_type="Beta Build"
-        build_risk="LOW"
-        build_recommendation="Running a beta version. Monitor for stability issues and upgrade when production version available"
-    elif [[ $(date +%Y) -lt 2024 ]] && [[ "${os_version%%.*}" -ge 14 ]]; then
-        # Future version detection (basic heuristic)
-        build_type="Pre-release Build"
-        build_risk="LOW"
-        build_recommendation="Running a pre-release version. Verify compatibility with enterprise software"
-    fi
-    
-    # Operating System Information
-    local os_details="Build: $os_build ($build_type), Architecture: $arch"
-    add_finding "System" "Operating System" "$os_name $os_version" "$os_details" "$build_risk" "$build_recommendation"
+    # Operating System Information (basic info only - patch module handles version analysis)
+    local os_details="Build: $os_build, Architecture: $arch"
+    add_finding "System" "Operating System" "$os_name $os_version" "$os_details" "INFO" ""
     
     # Hardware Information
     add_finding "System" "Hardware" "$hardware_model" "CPU: $cpu_brand, Cores: $cpu_cores, RAM: ${memory_gb}GB, Serial: $serial_number" "INFO" ""
@@ -233,11 +212,7 @@ check_open_ports() {
             port_details="No risky ports detected listening"
         fi
         
-        add_finding "Network" "Open Risky Ports" "$port_summary" "$port_details" "$risk_level" "$recommendation"
-        
-        # Additional check for any listening services
-        local total_listening=$(echo "$listening_ports" | wc -l | tr -d ' ')
-        add_finding "Network" "Total Listening Ports" "$total_listening services" "All services accepting network connections" "INFO" ""
+        # Network analysis module handles detailed port analysis
         
     else
         add_finding "Network" "Open Ports" "Unable to check" "netstat command not available" "LOW" "Install network utilities to check open ports"
