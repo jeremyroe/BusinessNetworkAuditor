@@ -141,6 +141,7 @@ The `examples/` directory contains sample reports demonstrating actual tool outp
 
 ### Multi-System Aggregated Reports
 - **[Aggregated HTML Report Example](examples/Aggregated-Report-Example.html)** - Professional client-ready report matching actual NetworkAuditAggregator output format
+- **[Report Preview](examples/Aggregated-Report-Screenshot.png)** - Screenshot showing rendered HTML report with professional styling and color-coded risk sections
 
 **Key Features Demonstrated:**
 - **Exact output format** matching real tool structure and sections
