@@ -26,3 +26,6 @@ Thumbs.db
 # Session tracking (excluded from repo)
 session_activity.log
 *.activity
+
+# HIBP API Configuration (contains sensitive API keys)
+config/hibp-api-config.json

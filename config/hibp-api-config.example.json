@@ -1,0 +1,14 @@
+{
+  "hibp": {
+    "api_key": "YOUR_32_CHARACTER_HIBP_API_KEY_HERE",
+    "base_url": "https://haveibeenpwned.com/api/v3",
+    "rate_limit_delay_ms": 1500,
+    "max_retries": 3,
+    "recent_breach_threshold_days": 365
+  },
+  "settings": {
+    "include_unverified_breaches": false,
+    "include_paste_data": true,
+    "truncate_response": false
+  }
+}
