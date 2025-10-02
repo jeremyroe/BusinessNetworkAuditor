@@ -1,0 +1,332 @@
+{
+  "version": "1.0.0",
+  "description": "Build manifest for BusinessNetworkAuditor web deployment versions",
+  "platforms": {
+    "windows": {
+      "core_modules": [
+        {
+          "name": "Initialize-Logging",
+          "file": "src/core/Initialize-Logging.ps1",
+          "category": "foundation",
+          "order": 1,
+          "dependencies": [],
+          "description": "Logging system initialization"
+        },
+        {
+          "name": "Write-LogMessage",
+          "file": "src/core/Write-LogMessage.ps1",
+          "category": "foundation",
+          "order": 2,
+          "dependencies": ["Initialize-Logging"],
+          "description": "Core logging functionality"
+        },
+        {
+          "name": "Import-AuditData",
+          "file": "src/core/Import-AuditData.ps1",
+          "category": "data",
+          "order": 10,
+          "dependencies": ["Write-LogMessage"],
+          "description": "JSON audit data import and consolidation"
+        },
+        {
+          "name": "Generate-RiskAnalysis",
+          "file": "src/core/Generate-RiskAnalysis.ps1",
+          "category": "analysis",
+          "order": 20,
+          "dependencies": ["Import-AuditData"],
+          "description": "Risk assessment and scoring"
+        },
+        {
+          "name": "Generate-ScoringMatrix",
+          "file": "src/core/Generate-ScoringMatrix.ps1",
+          "category": "analysis",
+          "order": 21,
+          "dependencies": ["Generate-RiskAnalysis"],
+          "description": "Scoring matrix generation"
+        },
+        {
+          "name": "Generate-ExecutiveSummary",
+          "file": "src/core/Generate-ExecutiveSummary.ps1",
+          "category": "reporting",
+          "order": 30,
+          "dependencies": ["Import-AuditData"],
+          "description": "Executive-level summary generation"
+        },
+        {
+          "name": "Export-RawDataJSON",
+          "file": "src/core/Export-RawDataJSON.ps1",
+          "category": "export",
+          "order": 40,
+          "dependencies": ["Import-AuditData"],
+          "description": "Raw JSON data export"
+        },
+        {
+          "name": "Export-MarkdownReport",
+          "file": "src/core/Export-MarkdownReport.ps1",
+          "category": "export",
+          "order": 41,
+          "dependencies": ["Generate-ExecutiveSummary"],
+          "description": "Markdown report generation"
+        },
+        {
+          "name": "Export-ClientReport",
+          "file": "src/core/Export-ClientReport.ps1",
+          "category": "export",
+          "order": 42,
+          "dependencies": ["Generate-ExecutiveSummary", "Export-MarkdownReport"],
+          "description": "Client-ready report export"
+        }
+      ],
+      "analysis_modules": [
+        {
+          "name": "Get-SystemInformation",
+          "file": "src/modules/Get-SystemInformation.ps1",
+          "category": "system",
+          "order": 100,
+          "dependencies": ["Write-LogMessage"],
+          "description": "System hardware and OS information"
+        },
+        {
+          "name": "Get-DiskSpaceAnalysis",
+          "file": "src/modules/Get-DiskSpaceAnalysis.ps1",
+          "category": "system",
+          "order": 101,
+          "dependencies": ["Write-LogMessage"],
+          "description": "Disk space utilization analysis"
+        },
+        {
+          "name": "Get-MemoryAnalysis",
+          "file": "src/modules/Get-MemoryAnalysis.ps1",
+          "category": "system",
+          "order": 102,
+          "dependencies": ["Write-LogMessage"],
+          "description": "Memory utilization analysis"
+        },
+        {
+          "name": "Get-ProcessAnalysis",
+          "file": "src/modules/Get-ProcessAnalysis.ps1",
+          "category": "system",
+          "order": 103,
+          "dependencies": ["Write-LogMessage"],
+          "description": "Running process analysis"
+        },
+        {
+          "name": "Get-SoftwareInventory",
+          "file": "src/modules/Get-SoftwareInventory.ps1",
+          "category": "inventory",
+          "order": 110,
+          "dependencies": ["Write-LogMessage"],
+          "description": "Installed software inventory"
+        },
+        {
+          "name": "Get-PatchStatus",
+          "file": "src/modules/Get-PatchStatus.ps1",
+          "category": "security",
+          "order": 120,
+          "dependencies": ["Write-LogMessage"],
+          "description": "Windows Update and patch status"
+        },
+        {
+          "name": "Get-SecuritySettings",
+          "file": "src/modules/Get-SecuritySettings.ps1",
+          "category": "security",
+          "order": 121,
+          "dependencies": ["Write-LogMessage"],
+          "description": "Windows security configuration analysis"
+        },
+        {
+          "name": "Get-UserAccountAnalysis",
+          "file": "src/modules/Get-UserAccountAnalysis.ps1",
+          "category": "security",
+          "order": 122,
+          "dependencies": ["Write-LogMessage"],
+          "description": "User account and privilege analysis"
+        },
+        {
+          "name": "Get-PolicyAnalysis",
+          "file": "src/modules/Get-PolicyAnalysis.ps1",
+          "category": "security",
+          "order": 123,
+          "dependencies": ["Write-LogMessage"],
+          "description": "Group Policy and security policy analysis"
+        },
+        {
+          "name": "Get-NetworkAnalysis",
+          "file": "src/modules/Get-NetworkAnalysis.ps1",
+          "category": "network",
+          "order": 130,
+          "dependencies": ["Write-LogMessage"],
+          "description": "Network configuration and connectivity analysis"
+        },
+        {
+          "name": "Get-DNSAnalysis",
+          "file": "src/modules/Get-DNSAnalysis.ps1",
+          "category": "network",
+          "order": 131,
+          "dependencies": ["Write-LogMessage"],
+          "description": "DNS configuration analysis"
+        },
+        {
+          "name": "Get-DHCPAnalysis",
+          "file": "src/modules/Get-DHCPAnalysis.ps1",
+          "category": "network",
+          "order": 132,
+          "dependencies": ["Write-LogMessage"],
+          "description": "DHCP configuration analysis"
+        },
+        {
+          "name": "Get-FileShareAnalysis",
+          "file": "src/modules/Get-FileShareAnalysis.ps1",
+          "category": "network",
+          "order": 133,
+          "dependencies": ["Write-LogMessage"],
+          "description": "File share configuration analysis"
+        },
+        {
+          "name": "Get-ActiveDirectoryAnalysis",
+          "file": "src/modules/Get-ActiveDirectoryAnalysis.ps1",
+          "category": "enterprise",
+          "order": 140,
+          "dependencies": ["Write-LogMessage"],
+          "description": "Active Directory integration analysis"
+        },
+        {
+          "name": "Get-ServerRoleAnalysis",
+          "file": "src/modules/Get-ServerRoleAnalysis.ps1",
+          "category": "enterprise",
+          "order": 141,
+          "dependencies": ["Write-LogMessage"],
+          "description": "Windows Server role analysis"
+        },
+        {
+          "name": "Get-PrinterAnalysis",
+          "file": "src/modules/Get-PrinterAnalysis.ps1",
+          "category": "peripherals",
+          "order": 150,
+          "dependencies": ["Write-LogMessage"],
+          "description": "Printer configuration analysis"
+        },
+        {
+          "name": "Get-EventLogAnalysis",
+          "file": "src/modules/Get-EventLogAnalysis.ps1",
+          "category": "monitoring",
+          "order": 160,
+          "dependencies": ["Write-LogMessage"],
+          "description": "Windows Event Log analysis"
+        },
+        {
+          "name": "Get-DarkWebAnalysis",
+          "file": "src/modules/Get-DarkWebAnalysis.ps1",
+          "category": "threat-intel",
+          "order": 170,
+          "dependencies": ["Write-LogMessage"],
+          "description": "Dark web breach analysis using HIBP API"
+        }
+      ]
+    },
+    "macos": {
+      "shell_modules": [
+        {
+          "name": "get_system_information",
+          "file": "src/modules/get_system_information.sh",
+          "category": "system",
+          "order": 100,
+          "dependencies": [],
+          "description": "macOS system information collection"
+        },
+        {
+          "name": "get_disk_space_analysis",
+          "file": "src/modules/get_disk_space_analysis.sh",
+          "category": "system",
+          "order": 101,
+          "dependencies": [],
+          "description": "Disk space analysis for macOS"
+        },
+        {
+          "name": "get_memory_analysis",
+          "file": "src/modules/get_memory_analysis.sh",
+          "category": "system",
+          "order": 102,
+          "dependencies": [],
+          "description": "Memory utilization analysis for macOS"
+        },
+        {
+          "name": "get_process_analysis",
+          "file": "src/modules/get_process_analysis.sh",
+          "category": "system",
+          "order": 103,
+          "dependencies": [],
+          "description": "Process analysis for macOS"
+        },
+        {
+          "name": "get_software_inventory",
+          "file": "src/modules/get_software_inventory.sh",
+          "category": "inventory",
+          "order": 110,
+          "dependencies": [],
+          "description": "Software inventory for macOS"
+        },
+        {
+          "name": "get_patch_status",
+          "file": "src/modules/get_patch_status.sh",
+          "category": "security",
+          "order": 120,
+          "dependencies": [],
+          "description": "macOS update status analysis"
+        },
+        {
+          "name": "get_security_settings",
+          "file": "src/modules/get_security_settings.sh",
+          "category": "security",
+          "order": 121,
+          "dependencies": [],
+          "description": "macOS security configuration analysis"
+        },
+        {
+          "name": "get_user_account_analysis",
+          "file": "src/modules/get_user_account_analysis.sh",
+          "category": "security",
+          "order": 122,
+          "dependencies": [],
+          "description": "User account analysis for macOS"
+        },
+        {
+          "name": "get_network_analysis",
+          "file": "src/modules/get_network_analysis.sh",
+          "category": "network",
+          "order": 130,
+          "dependencies": [],
+          "description": "Network configuration analysis for macOS"
+        },
+        {
+          "name": "export_reports",
+          "file": "src/modules/export_reports.sh",
+          "category": "export",
+          "order": 200,
+          "dependencies": [],
+          "description": "Report export functionality for macOS"
+        }
+      ]
+    }
+  },
+  "build_settings": {
+    "windows": {
+      "main_scripts": {
+        "workstation": "src/WindowsWorkstationAuditor.ps1",
+        "server": "src/WindowsServerAuditor.ps1"
+      },
+      "config_files": {
+        "workstation": "config/workstation-audit-config.json",
+        "server": "config/server-audit-config.json"
+      }
+    },
+    "macos": {
+      "main_scripts": {
+        "workstation": "src/macOSWorkstationAuditor.sh"
+      },
+      "config_files": {
+        "workstation": "config/macos-audit-config.json"
+      }
+    }
+  }
+}

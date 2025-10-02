@@ -43,14 +43,16 @@ function Generate-ExecutiveSummary {
     # Environment Overview Analysis
     $WorkstationCount = ($ImportedData.Systems | Where-Object { $_.SystemType -like "*Workstation*" -or $_.SystemType -eq "Unknown" }).Count
     $ServerCount = ($ImportedData.Systems | Where-Object { $_.SystemType -like "*Server*" }).Count
+    $DarkWebChecks = ($ImportedData.Systems | Where-Object { $_.SystemType -eq "Breach Monitor" }).Count
     $DomainControllers = ($ImportedData.AllFindings | Where-Object { $_.Category -eq "System" -and $_.Item -eq "Server Roles" -and $_.Value -like "*Domain Controller*" }).Count
     
     $Summary.EnvironmentOverview = @{
         TotalSystems = $ImportedData.SystemCount
         Workstations = $WorkstationCount
         Servers = $ServerCount
+        DarkWebChecks = $DarkWebChecks
         DomainControllers = $DomainControllers
-        AssessmentScope = if ($ImportedData.SystemCount -eq 1) { "Single system" } 
+        AssessmentScope = if ($ImportedData.SystemCount -eq 1) { "Single system" }
                           elseif ($ImportedData.SystemCount -le 5) { "Small environment" }
                           elseif ($ImportedData.SystemCount -le 20) { "Medium environment" }
                           else { "Large environment" }
@@ -76,16 +78,18 @@ function Generate-ExecutiveSummary {
     $SecurityFindings = $ImportedData.AllFindings | Where-Object { $_.Category -in @("Security", "Users", "Network") }
     $PatchFindings = $ImportedData.AllFindings | Where-Object { $_.Category -eq "Patching" -and $_.RiskLevel -eq "HIGH" }
     $SoftwareFindings = $ImportedData.AllFindings | Where-Object { $_.Category -eq "Software" }
+    $DarkWebFindings = $ImportedData.AllFindings | Where-Object { $_.Category -eq "Dark Web Analysis" -and $_.Item -like "*Domain Breach*" }
     
     $Summary.TechnicalHighlights = @{
         SecurityIssues = $SecurityFindings.Count
         CriticalPatches = $PatchFindings.Count
         SoftwareInventory = $SoftwareFindings.Count
-        SystemsWithAdminIssues = ($ImportedData.AllFindings | Where-Object { 
-            $_.Category -eq "Users" -and $_.Item -like "*Administrator*" -and $_.RiskLevel -in @("HIGH", "MEDIUM") 
+        DarkWebBreaches = $DarkWebFindings.Count
+        SystemsWithAdminIssues = ($ImportedData.AllFindings | Where-Object {
+            $_.Category -eq "Users" -and $_.Item -like "*Administrator*" -and $_.RiskLevel -in @("HIGH", "MEDIUM")
         } | Select-Object -Unique SystemName).Count
-        NetworkRisks = ($ImportedData.AllFindings | Where-Object { 
-            $_.Category -eq "Network" -and $_.RiskLevel -eq "HIGH" 
+        NetworkRisks = ($ImportedData.AllFindings | Where-Object {
+            $_.Category -eq "Network" -and $_.RiskLevel -eq "HIGH"
         }).Count
     }
     
