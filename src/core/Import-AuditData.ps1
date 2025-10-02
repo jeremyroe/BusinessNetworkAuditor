@@ -40,9 +40,11 @@ function Import-AuditData {
         return $Result
     }
     
-    # Find JSON audit files
-    $JsonFiles = Get-ChildItem -Path $ImportPath -Filter "*_raw_data.json" -File
-    Write-Verbose "Found $($JsonFiles.Count) potential audit files"
+    # Find JSON audit files (system audits and dark web checks)
+    $SystemFiles = Get-ChildItem -Path $ImportPath -Filter "*_raw_data.json" -File
+    $DarkWebFiles = Get-ChildItem -Path $ImportPath -Filter "darkweb-check-*.json" -File
+    $JsonFiles = $SystemFiles + $DarkWebFiles
+    Write-Verbose "Found $($JsonFiles.Count) audit files ($($SystemFiles.Count) system, $($DarkWebFiles.Count) dark web)"
     
     foreach ($JsonFile in $JsonFiles) {
         try {
@@ -56,68 +58,126 @@ function Import-AuditData {
             }
             $AuditData = $JsonContent | ConvertFrom-Json
             
-            # Validate audit data structure
-            if (-not $AuditData.metadata -or -not $AuditData.compliance_framework.findings) {
-                Write-Warning "Invalid audit file format: $($JsonFile.Name) - Missing metadata or compliance_framework.findings"
-                $Result.Errors += "Invalid format: $($JsonFile.Name)"
-                continue
-            }
-            
-            # Extract system information
-            $SystemInfo = [PSCustomObject]@{
-                ComputerName = $AuditData.metadata.computer_name
-                AuditTimestamp = $AuditData.metadata.audit_timestamp
-                ToolVersion = $AuditData.metadata.tool_version
-                FileName = $JsonFile.Name
-                FileSize = [math]::Round($JsonFile.Length / 1KB, 1)
-                FindingCount = $AuditData.compliance_framework.findings.Count
-                OperatingSystem = ""
-                SystemType = "Unknown"
-                Domain = ""
-                LastBootTime = ""
-            }
-            
-            # Extract additional system details from OS context
-            if ($AuditData.system_context -and $AuditData.system_context.os_info) {
-                $SystemInfo.OperatingSystem = $AuditData.system_context.os_info.caption
-                $SystemInfo.Domain = $AuditData.system_context.domain
-                $SystemInfo.LastBootTime = $AuditData.system_context.os_info.last_boot_time
-            }
-            
-            # Determine system type from server roles or OS
-            if ($AuditData.system_context.os_info.caption -like "*Server*") {
-                $SystemInfo.SystemType = "Server"
+            # Determine file type and validate structure
+            $IsDarkWebFile = $JsonFile.Name -like "darkweb-check-*"
+
+            if ($IsDarkWebFile) {
+                # Validate dark web file structure
+                if (-not $AuditData.Results -or -not $AuditData.Summary) {
+                    Write-Warning "Invalid dark web file format: $($JsonFile.Name) - Missing Results or Summary"
+                    $Result.Errors += "Invalid format: $($JsonFile.Name)"
+                    continue
+                }
             } else {
-                $SystemInfo.SystemType = "Workstation"  
+                # Validate system audit file structure
+                if (-not $AuditData.metadata -or -not $AuditData.compliance_framework.findings) {
+                    Write-Warning "Invalid audit file format: $($JsonFile.Name) - Missing metadata or compliance_framework.findings"
+                    $Result.Errors += "Invalid format: $($JsonFile.Name)"
+                    continue
+                }
+            }
+            
+            # Extract system information based on file type
+            if ($IsDarkWebFile) {
+                $SystemInfo = [PSCustomObject]@{
+                    ComputerName = "Dark Web Check"
+                    AuditTimestamp = $AuditData.CheckDate
+                    ToolVersion = "DarkWebChecker v1.0"
+                    FileName = $JsonFile.Name
+                    FileSize = [math]::Round($JsonFile.Length / 1KB, 1)
+                    FindingCount = $AuditData.Summary.BreachesFound
+                    OperatingSystem = "Dark Web Analysis"
+                    SystemType = "Breach Monitor"
+                    Domain = ""
+                    LastBootTime = ""
+                }
+            } else {
+                $SystemInfo = [PSCustomObject]@{
+                    ComputerName = $AuditData.metadata.computer_name
+                    AuditTimestamp = $AuditData.metadata.audit_timestamp
+                    ToolVersion = $AuditData.metadata.tool_version
+                    FileName = $JsonFile.Name
+                    FileSize = [math]::Round($JsonFile.Length / 1KB, 1)
+                    FindingCount = $AuditData.compliance_framework.findings.Count
+                    OperatingSystem = ""
+                    SystemType = "Unknown"
+                    Domain = ""
+                    LastBootTime = ""
+                }
+            }
+            
+            # Extract additional system details (only for system audit files)
+            if (-not $IsDarkWebFile) {
+                if ($AuditData.system_context -and $AuditData.system_context.os_info) {
+                    $SystemInfo.OperatingSystem = $AuditData.system_context.os_info.caption
+                    $SystemInfo.Domain = $AuditData.system_context.domain
+                    $SystemInfo.LastBootTime = $AuditData.system_context.os_info.last_boot_time
+                }
+
+                # Determine system type from server roles or OS
+                if ($AuditData.system_context.os_info.caption -like "*Server*") {
+                    $SystemInfo.SystemType = "Server"
+                } else {
+                    $SystemInfo.SystemType = "Workstation"
+                }
             }
             
             # Add system to collection
             $Result.Systems += $SystemInfo
             $Result.SystemCount++
             
-            # Process findings and add system context
-            foreach ($Finding in $AuditData.compliance_framework.findings) {
-                # Map the compliance framework structure to expected format
-                $EnrichedFinding = [PSCustomObject]@{
-                    Category = $Finding.category
-                    Item = $Finding.item
-                    Value = "" # Not available in compliance framework
-                    Details = $Finding.requirement
-                    RiskLevel = $Finding.risk_level
-                    Recommendation = $Finding.requirement
-                    SystemName = $SystemInfo.ComputerName
-                    SystemType = $SystemInfo.SystemType
-                    AuditDate = $SystemInfo.AuditTimestamp
-                    FindingId = $Finding.finding_id
-                    Framework = $Finding.framework
+            # Process findings based on file type
+            if ($IsDarkWebFile) {
+                # Process dark web results (limit to max 10 results as requested)
+                $DarkWebFindings = $AuditData.Results | Where-Object { $_.Item -like "*Domain Breach*" } | Select-Object -First 10
+
+                foreach ($Finding in $DarkWebFindings) {
+                    $EnrichedFinding = [PSCustomObject]@{
+                        Category = $Finding.Category
+                        Item = $Finding.Item
+                        Value = $Finding.Value
+                        Details = $Finding.Details
+                        RiskLevel = $Finding.RiskLevel
+                        Recommendation = $Finding.Recommendation
+                        SystemName = "Dark Web Check"
+                        SystemType = "Breach Monitor"
+                        AuditDate = $SystemInfo.AuditTimestamp
+                        FindingId = "DW-$(Get-Random)"
+                        Framework = "Dark Web"
+                    }
+
+                    $Result.AllFindings += $EnrichedFinding
+                    $Result.FindingCount++
                 }
-                
-                $Result.AllFindings += $EnrichedFinding
-                $Result.FindingCount++
+            } else {
+                # Process system audit findings
+                foreach ($Finding in $AuditData.compliance_framework.findings) {
+                    # Map the compliance framework structure to expected format
+                    $EnrichedFinding = [PSCustomObject]@{
+                        Category = $Finding.category
+                        Item = $Finding.item
+                        Value = "" # Not available in compliance framework
+                        Details = $Finding.requirement
+                        RiskLevel = $Finding.risk_level
+                        Recommendation = $Finding.requirement
+                        SystemName = $SystemInfo.ComputerName
+                        SystemType = $SystemInfo.SystemType
+                        AuditDate = $SystemInfo.AuditTimestamp
+                        FindingId = $Finding.finding_id
+                        Framework = $Finding.framework
+                    }
+
+                    $Result.AllFindings += $EnrichedFinding
+                    $Result.FindingCount++
+                }
             }
             
             $Result.ImportedFiles += $JsonFile.Name
-            Write-Verbose "  → Imported $($AuditData.compliance_framework.findings.Count) findings from $($SystemInfo.ComputerName)"
+            if ($IsDarkWebFile) {
+                Write-Verbose "  → Imported $($DarkWebFindings.Count) dark web findings"
+            } else {
+                Write-Verbose "  → Imported $($AuditData.compliance_framework.findings.Count) findings from $($SystemInfo.ComputerName)"
+            }
             
         }
         catch {
