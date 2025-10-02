@@ -1,12 +1,13 @@
 # BusinessNetworkAuditor
 
-Cross-platform IT assessment tool for Windows and macOS systems.
+Cross-platform IT assessment and dark web monitoring tool for Windows and macOS systems.
 
 ## Features
 
 - System information, user accounts, software inventory, security settings
 - Server role detection (Domain Controller, DNS, DHCP, File Services)
 - Active Directory health and stale account detection
+- Dark web breach monitoring for email domains
 - Risk-based reporting (HIGH/MEDIUM/LOW/INFO)
 - Multi-system aggregation with HTML reports
 
@@ -32,6 +33,12 @@ iex (irm https://raw.githubusercontent.com/jroe-pulseone/BusinessNetworkAuditor/
 curl -s https://raw.githubusercontent.com/jroe-pulseone/BusinessNetworkAuditor/main/macOSWorkstationAuditor-Web.sh | sudo bash
 ```
 
+### Dark Web Breach Analysis
+```powershell
+.\src\DarkWebChecker.ps1 -Domains "client.com,subsidiary.org"
+.\src\DarkWebChecker.ps1 -DemoMode
+```
+
 ### Multi-System Aggregation
 ```powershell
 # Collect JSON files from individual audits
@@ -54,12 +61,14 @@ See `examples/` directory for sample reports:
 - **Windows**: 10/11 or Server 2016+, PowerShell 5.0+
 - **macOS**: 12+ (Monterey), admin privileges recommended
 - **Web versions**: Built with `./Build-WebVersions.ps1`
+- **Dark Web Checker**: Internet connectivity, optional API key for enhanced results
 
 ## Output
 
 - **Markdown Report**: Technical findings with risk levels and recommendations
 - **JSON Export**: Complete data for aggregation and documentation
 - **HTML Report**: Client-ready aggregated report (via NetworkAuditAggregator)
+- **Dark Web Report**: Domain breach analysis with timeline and impact assessment
 
 ## Configuration
 
@@ -68,4 +77,5 @@ Customize settings in configuration files:
 - `config/server-audit-config.json` - Windows server settings
 - `config/macos-audit-config.json` - macOS settings
 - `config/audit-config.json` - General audit settings
+- `config/hibp-api-config.json` - Dark web breach API configuration (optional)
 
