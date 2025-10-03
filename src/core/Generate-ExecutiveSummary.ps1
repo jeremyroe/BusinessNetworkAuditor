@@ -38,6 +38,8 @@ function Generate-ExecutiveSummary {
         PriorityRecommendations = @()
         EnvironmentOverview = @{}
         TechnicalHighlights = @{}
+        SecurityStrengths = @()
+        PositiveFindings = @{}
     }
     
     # Environment Overview Analysis
@@ -52,10 +54,7 @@ function Generate-ExecutiveSummary {
         Servers = $ServerCount
         DarkWebChecks = $DarkWebChecks
         DomainControllers = $DomainControllers
-        AssessmentScope = if ($ImportedData.SystemCount -eq 1) { "Single system" }
-                          elseif ($ImportedData.SystemCount -le 5) { "Small environment" }
-                          elseif ($ImportedData.SystemCount -le 20) { "Medium environment" }
-                          else { "Large environment" }
+        AssessmentScope = "$($ImportedData.SystemCount) systems assessed"
     }
     
     # Key Findings Analysis (HIGH and MEDIUM risk items)
@@ -92,7 +91,67 @@ function Generate-ExecutiveSummary {
             $_.Category -eq "Network" -and $_.RiskLevel -eq "HIGH"
         }).Count
     }
-    
+
+    # Security Strengths Analysis - ONLY REAL FINDINGS, NO FABRICATION
+    $PositiveFindings = $ImportedData.AllFindings | Where-Object { $_.RiskLevel -in @("LOW", "INFO") }
+
+    # CRITICAL: Only show findings that actually exist in the audit data
+    # NO pattern matching, NO inference, NO fabrication
+    $SecurityStrengths = @()
+
+    # Convert positive findings directly to security strengths with exact details from audit
+    foreach ($Finding in $PositiveFindings) {
+        # Only include findings that represent positive security configurations
+        $IsSecurityStrength = $false
+        $StrengthCategory = ""
+
+        switch ($Finding.Category) {
+            "Security" {
+                if ($Finding.Item -match "FileVault|XProtect|Gatekeeper|Firewall|System Integrity Protection|Find My") {
+                    $IsSecurityStrength = $true
+                    $StrengthCategory = "Security Controls"
+                }
+            }
+            "Patching" {
+                if ($Finding.Item -match "Automatic Updates|Available Updates" -and $Finding.Details -notmatch "disabled|failed|error") {
+                    $IsSecurityStrength = $true
+                    $StrengthCategory = "Update Management"
+                }
+            }
+            "Management" {
+                if ($Finding.Item -match "MDM Enrollment" -and $Finding.Details -notmatch "not enrolled|disabled") {
+                    $IsSecurityStrength = $true
+                    $StrengthCategory = "Device Management"
+                }
+            }
+            "Dark Web Analysis" {
+                if ($Finding.Item -match "No.*breach|Clean" -or ($Finding.RiskLevel -eq "INFO" -and $Finding.Details -notmatch "breach.*found")) {
+                    $IsSecurityStrength = $true
+                    $StrengthCategory = "Threat Intelligence"
+                }
+            }
+        }
+
+        if ($IsSecurityStrength) {
+            $SecurityStrengths += [PSCustomObject]@{
+                Category = $StrengthCategory
+                Strength = $Finding.Item
+                Details = $Finding.Details  # EXACT details from audit, no modification
+                SystemCount = 1
+                OriginalFinding = $Finding  # Keep reference to source
+            }
+        }
+    }
+
+    # Remove duplicates and limit to top 10
+    $Summary.SecurityStrengths = $SecurityStrengths | Sort-Object Category, Strength | Select-Object -First 10
+
+    $Summary.PositiveFindings = @{
+        TotalPositiveFindings = $PositiveFindings.Count
+        SecurityStrengthsFound = $SecurityStrengths.Count
+        StrengthCategories = ($SecurityStrengths | Group-Object Category).Count
+    }
+
     # Priority Recommendations (based on risk level and system impact)
     $RecommendationPriorities = @()
     
@@ -143,7 +202,7 @@ function Generate-ExecutiveSummary {
     
     $Summary.PriorityRecommendations = $RecommendationPriorities
     
-    Write-Verbose "Executive summary generated: $($Summary.KeyFindings.Count) key findings, $($Summary.PriorityRecommendations.Count) priority recommendations"
+    Write-Verbose "Executive summary generated: $($Summary.KeyFindings.Count) key findings, $($Summary.SecurityStrengths.Count) security strengths, $($Summary.PriorityRecommendations.Count) priority recommendations"
     
     return $Summary
 }

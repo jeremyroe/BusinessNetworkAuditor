@@ -102,11 +102,49 @@ function Export-ClientReport {
             
             <div class="environment-overview">
                 <h3>Environment Overview</h3>
-                <p><strong>Assessment Scope:</strong> $($ExecutiveSummary.EnvironmentOverview.AssessmentScope) 
-                   ($($ExecutiveSummary.EnvironmentOverview.Workstations) workstations, $($ExecutiveSummary.EnvironmentOverview.Servers) servers)</p>
+                $(
+                    $ScopeDetails = @()
+                    if ($ExecutiveSummary.EnvironmentOverview.Workstations -gt 0) { $ScopeDetails += "$($ExecutiveSummary.EnvironmentOverview.Workstations) workstations" }
+                    if ($ExecutiveSummary.EnvironmentOverview.Servers -gt 0) { $ScopeDetails += "$($ExecutiveSummary.EnvironmentOverview.Servers) servers" }
+                    if ($ExecutiveSummary.EnvironmentOverview.DarkWebChecks -gt 0) { $ScopeDetails += "dark web analysis" }
+                    $ScopeText = if ($ScopeDetails.Count -gt 0) { $ScopeDetails -join ', ' } else { "systems" }
+                    "<p><strong>Assessment Scope:</strong> $ScopeText</p>"
+                )
                 <p><strong>Total Findings:</strong> $($ExecutiveSummary.TotalFindings) items identified across all systems</p>
                 <p><strong>Priority Actions:</strong> $($ExecutiveSummary.PriorityRecommendations.Count) immediate recommendations</p>
             </div>
+
+            <!-- Security Strengths Section -->
+            $(if ($ExecutiveSummary.SecurityStrengths -and $ExecutiveSummary.SecurityStrengths.Count -gt 0) { @"
+            <div class="security-strengths">
+                <h3 style="color: #28a745; display: flex; align-items: center;">
+                    Security Strengths
+                </h3>
+                <div style="background: linear-gradient(135deg, #e8f5e8 0%, #f0f9f0 100%); border-left: 4px solid #28a745; padding: 15px; border-radius: 8px; margin: 10px 0;">
+                    <p style="margin-bottom: 15px; color: #155724;"><strong>Positive security findings and properly configured systems</strong></p>
+                    $(
+                        # Group security strengths by category for scalability
+                        $StrengthGroups = $ExecutiveSummary.SecurityStrengths | Group-Object Category
+                        ($StrengthGroups | ForEach-Object {
+                            $CategoryName = $_.Name
+                            $Items = $_.Group
+                            $ItemCount = $Items.Count
+
+                            "<div style='margin-bottom: 15px; padding: 10px; background: rgba(40, 167, 69, 0.1); border-radius: 4px;'>" +
+                            "<strong style='color: #28a745;'>$CategoryName ($ItemCount items):</strong><br>" +
+                            "<ul style='margin: 5px 0; padding-left: 20px; color: #155724;'>" +
+                            (($Items | Select-Object -First 5 | ForEach-Object { "<li>$($_.Strength)</li>" }) -join "") +
+                            $(if ($ItemCount -gt 5) { "<li style='color: #6c757d;'><em>... and $($ItemCount - 5) more</em></li>" } else { "" }) +
+                            "</ul>" +
+                            "</div>"
+                        }) -join ""
+                    )
+                    <p style="margin-top: 15px; margin-bottom: 0; color: #28a745; font-weight: bold;">
+                        $($ExecutiveSummary.PositiveFindings.TotalPositiveFindings) total positive findings identified
+                    </p>
+                </div>
+            </div>
+"@ })
         </div>
         
         <!-- Scoring Summary -->

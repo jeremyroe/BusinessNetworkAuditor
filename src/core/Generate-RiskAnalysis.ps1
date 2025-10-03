@@ -96,7 +96,9 @@ function Generate-RiskAnalysis {
     $RiskAnalysis.LowRiskFindings = $LowRiskItems
     
     # Generate Systems Snapshot (similar to Computer Snapshot table)
-    foreach ($System in $ImportedData.Systems) {
+    # Exclude dark web checks - only include actual computer systems
+    $ActualSystems = $ImportedData.Systems | Where-Object { $_.SystemType -ne "Breach Monitor" }
+    foreach ($System in $ActualSystems) {
         $SystemFindings = $ImportedData.AllFindings | Where-Object { $_.SystemName -eq $System.ComputerName }
         
         # Calculate grades for each category
