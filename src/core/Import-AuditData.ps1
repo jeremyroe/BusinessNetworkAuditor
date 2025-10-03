@@ -43,7 +43,7 @@ function Import-AuditData {
     # Find JSON audit files (system audits and dark web checks)
     $SystemFiles = Get-ChildItem -Path $ImportPath -Filter "*_raw_data.json" -File
     $DarkWebFiles = Get-ChildItem -Path $ImportPath -Filter "darkweb-check-*.json" -File
-    $JsonFiles = $SystemFiles + $DarkWebFiles
+    $JsonFiles = @($SystemFiles) + @($DarkWebFiles)
     Write-Verbose "Found $($JsonFiles.Count) audit files ($($SystemFiles.Count) system, $($DarkWebFiles.Count) dark web)"
     
     foreach ($JsonFile in $JsonFiles) {

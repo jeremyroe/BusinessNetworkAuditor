@@ -1,10 +1,12 @@
 #!/bin/bash
 
 # macOSWorkstationAuditor - Self-Contained Web Version
-# Version 1.0.0 - macOS Workstation Audit Script
+# Version 2.0.0 - macOS Workstation Audit Script (Manifest-Based Build)
 # Platform: macOS 12+ (Monterey and later)
 # Requires: bash 3.2+, standard macOS utilities
 # Usage: curl -s https://your-url/macOSWorkstationAuditor-Web.sh | bash
+# Built: 2025-10-03 11:01:04
+# Modules: 10 embedded shell modules
 
 # Parameters can be set via environment variables:
 # OUTPUT_PATH - Custom output directory (default: ~/macOSAudit)
@@ -67,1177 +69,256 @@ EOF
 START_TIME=$(date +%s)
 COMPUTER_NAME=$(hostname | cut -d. -f1)
 BASE_FILENAME="${COMPUTER_NAME}_$(date '+%Y%m%d_%H%M%S')"
-CONFIG_VERSION="1.0.0"
+CONFIG_VERSION="2.0.0"
 
 # Ensure output directory exists
 mkdir -p "$OUTPUT_PATH" 2>/dev/null
 mkdir -p "$OUTPUT_PATH/logs" 2>/dev/null
 
-# Embedded Module: export_reports.sh
+# === EMBEDDED MODULES ===
+
+# [SYSTEM] get_system_information - macOS system information collection
+# Order: 100
 #!/bin/bash
 
-# macOSWorkstationAuditor - Report Export Module
+# macOSWorkstationAuditor - System Information Module
 # Version 1.0.0
 
-# Global variables for report generation (bash 3.2 compatible)
-ALL_FINDINGS=()
-RISK_COUNT_HIGH=0
-RISK_COUNT_MEDIUM=0
-RISK_COUNT_LOW=0
-RISK_COUNT_INFO=0
+# Global variables for collecting data
+declare -a SYSTEM_FINDINGS=()
 
-export_markdown_report() {
-    log_message "INFO" "Generating technician report..." "REPORT"
-
-    # Generate technician report (matching Windows format) - findings already collected
-    local report_file="$OUTPUT_PATH/${BASE_FILENAME}_technician_report.md"
+get_system_information_data() {
+    log_message "INFO" "Collecting macOS system information..." "SYSTEM"
     
-    generate_markdown_header > "$report_file"
-    generate_executive_summary >> "$report_file"
-    generate_critical_action_items >> "$report_file"
-    generate_system_overview >> "$report_file"
-    generate_system_resources >> "$report_file"
-    generate_network_interfaces >> "$report_file"
-    generate_security_management >> "$report_file"
-    generate_security_analysis >> "$report_file"
-    generate_software_inventory >> "$report_file"
-    generate_recommendations >> "$report_file"
-    generate_markdown_footer >> "$report_file"
+    # Initialize findings array
+    SYSTEM_FINDINGS=()
     
-    log_message "SUCCESS" "Technician report generated: $report_file" "REPORT"
+    # Get basic system information
+    local os_version=$(sw_vers -productVersion)
+    local os_build=$(sw_vers -buildVersion)
+    local os_name=$(sw_vers -productName)
+    local hardware_model=$(sysctl -n hw.model)
+    local cpu_brand=$(sysctl -n machdep.cpu.brand_string 2>/dev/null || echo "Unknown CPU")
+    local memory_gb=$(echo "scale=2; $(sysctl -n hw.memsize) / 1073741824" | bc)
+    local cpu_cores=$(sysctl -n hw.ncpu)
+    
+    # Get serial number
+    local serial_number=$(system_profiler SPHardwareDataType | grep "Serial Number" | awk '{print $4}' 2>/dev/null || echo "Unknown")
+    if [[ -z "$serial_number" || "$serial_number" == "" ]]; then
+        serial_number=$(ioreg -c IOPlatformExpertDevice -d 2 | awk -F\" '/IOPlatformSerialNumber/{print $(NF-1)}' 2>/dev/null || echo "Unknown")
+    fi
+    
+    # Get computer name and hostname
+    local computer_name=$(scutil --get ComputerName 2>/dev/null || hostname -s)
+    local hostname=$(hostname)
+    
+    # Get system uptime
+    local uptime_seconds=$(sysctl -n kern.boottime | awk '{print $4}' | tr -d ',')
+    local current_time=$(date +%s)
+    local uptime_days=$(( (current_time - uptime_seconds) / 86400 ))
+    
+    # Get system architecture
+    local arch=$(uname -m)
+    
+    
+    
+    # Operating System Information (basic info only - patch module handles version analysis)
+    local os_details="Build: $os_build, Architecture: $arch"
+    add_finding "System" "Operating System" "$os_name $os_version" "$os_details" "INFO" ""
+    
+    # Hardware Information
+    add_finding "System" "Hardware" "$hardware_model" "CPU: $cpu_brand, Cores: $cpu_cores, RAM: ${memory_gb}GB, Serial: $serial_number" "INFO" ""
+    
+    # Computer Identity
+    add_finding "System" "Computer Name" "$computer_name" "Hostname: $hostname" "INFO" ""
+    
+    # System Uptime
+    local uptime_risk="INFO"
+    local uptime_recommendation=""
+    if [[ $uptime_days -gt 30 ]]; then
+        uptime_risk="LOW"
+        uptime_recommendation="Consider restarting to apply pending updates and clear system resources"
+    fi
+    add_finding "System" "System Uptime" "$uptime_days days" "Last reboot: $(date -r $uptime_seconds)" "$uptime_risk" "$uptime_recommendation"
+    
+    # Check printer configuration
+    check_printer_inventory
+    
+    # Check for open risky ports
+    check_open_ports
+    
+    log_message "SUCCESS" "System information collection completed - ${#SYSTEM_FINDINGS[@]} findings" "SYSTEM"
 }
 
-export_raw_data_json() {
-    log_message "INFO" "Generating JSON raw data export..." "REPORT"
-
-    # Use findings already collected - don't collect again
-    local json_file="$OUTPUT_PATH/${BASE_FILENAME}_raw_data.json"
+check_printer_inventory() {
+    log_message "INFO" "Checking printer configuration..." "SYSTEM"
     
-    # Generate JSON structure matching Windows version format
-    cat > "$json_file" << EOF
-{
-  "metadata": {
-    "computer_name": "$COMPUTER_NAME",
-    "audit_timestamp": "$(date -u '+%Y-%m-%dT%H:%M:%SZ')",
-    "tool_version": "$CONFIG_VERSION",
-    "platform": "macOS",
-    "os_version": "$(sw_vers -productVersion)",
-    "os_build": "$(sw_vers -buildVersion)",
-    "audit_duration_seconds": $(($(date +%s) - START_TIME))
-  },
-  "system_context": {
-    "os_info": {
-      "caption": "$(sw_vers -productName) $(sw_vers -productVersion)",
-      "version": "$(sw_vers -productVersion)",
-      "build_number": "$(sw_vers -buildVersion)",
-      "architecture": "$(uname -m)",
-      "last_boot_time": "$(date -r $(sysctl -n kern.boottime | awk '{print $4}' | tr -d ',') '+%Y-%m-%d %H:%M:%S')"
-    },
-    "hardware_info": {
-      "model": "$(sysctl -n hw.model)",
-      "total_memory_gb": $(echo "scale=2; $(sysctl -n hw.memsize) / 1073741824" | bc),
-      "cpu_cores": $(sysctl -n hw.ncpu)
-    },
-    "domain": "$(hostname | cut -d. -f2- || echo 'WORKGROUP')",
-    "computer_name": "$COMPUTER_NAME"
-  },
-  "compliance_framework": {
-    "findings": [
-EOF
+    # Get installed printers using lpstat
+    local printer_count=0
+    local printer_names=""
+    local risk_level="INFO"
+    local recommendation=""
+    
+    if command -v lpstat >/dev/null 2>&1; then
+        # Get list of configured printers
+        local printers=$(lpstat -p 2>/dev/null | grep "printer" | awk '{print $2}')
+        if [[ -n "$printers" ]]; then
+            printer_count=$(echo "$printers" | wc -l | tr -d ' ')
+            printer_names=$(echo "$printers" | tr '\n' ', ' | sed 's/, $//')
+        fi
+        
+        # Check for network printers (potential security concern)
+        local network_printers=0
+        if [[ -n "$printers" ]]; then
+            while IFS= read -r printer; do
+                if [[ -n "$printer" ]]; then
+                    local printer_uri=$(lpstat -v "$printer" 2>/dev/null | awk '{print $4}')
+                    if echo "$printer_uri" | grep -qE "^(ipp|ipps|http|https|socket|lpd)://"; then
+                        ((network_printers++))
+                    fi
+                fi
+            done <<< "$printers"
+        fi
+        
+        # Assess security risk
+        if [[ $network_printers -gt 0 ]]; then
+            risk_level="LOW"
+            recommendation="$network_printers network printers detected. Ensure they are on trusted networks and use secure protocols"
+        fi
+        
+        # Check for default printer
+        local default_printer=$(lpstat -d 2>/dev/null | awk '{print $4}')
+        local printer_details="$printer_count total"
+        if [[ -n "$default_printer" ]]; then
+            printer_details="$printer_details, default: $default_printer"
+        fi
+        if [[ $network_printers -gt 0 ]]; then
+            printer_details="$printer_details, $network_printers network"
+        fi
+        
+        add_finding "Hardware" "Printers" "$printer_count printers" "$printer_details" "$risk_level" "$recommendation"
+        
+        # List individual printers if any exist
+        if [[ $printer_count -gt 0 && $printer_count -le 5 ]]; then
+            add_finding "Hardware" "Printer List" "$printer_names" "Configured printer names" "INFO" ""
+        fi
+        
+    else
+        add_finding "Hardware" "Printers" "Unable to check" "lpstat command not available" "LOW" ""
+    fi
+}
 
-    # Add all findings as JSON
-    local first_finding=true
-    for finding in "${ALL_FINDINGS[@]}"; do
-        if [[ "$first_finding" == true ]]; then
-            first_finding=false
+check_open_ports() {
+    log_message "INFO" "Checking for open risky ports..." "SYSTEM"
+    
+    # Define risky ports to check for
+    local risky_ports=(
+        "21:FTP"
+        "22:SSH" 
+        "23:Telnet"
+        "53:DNS"
+        "80:HTTP"
+        "135:RPC"
+        "139:NetBIOS"
+        "443:HTTPS"
+        "445:SMB"
+        "993:IMAPS"
+        "995:POP3S"
+        "1433:SQL Server"
+        "1521:Oracle"
+        "3306:MySQL"
+        "3389:RDP"
+        "5432:PostgreSQL"
+        "5900:VNC"
+        "6379:Redis"
+        "8080:HTTP Alt"
+        "27017:MongoDB"
+    )
+    
+    local open_ports=()
+    local high_risk_ports=()
+    local medium_risk_ports=()
+    
+    # Check if netstat is available
+    if command -v netstat >/dev/null 2>&1; then
+        # Get listening ports
+        local listening_ports=$(netstat -an | grep LISTEN)
+        
+        # Check each risky port
+        for port_info in "${risky_ports[@]}"; do
+            local port=$(echo "$port_info" | cut -d: -f1)
+            local service=$(echo "$port_info" | cut -d: -f2)
+            
+            if echo "$listening_ports" | grep -q ":$port "; then
+                open_ports+=("$port ($service)")
+                
+                # Categorize by risk level
+                case "$port" in
+                    "21"|"23"|"135"|"139"|"445"|"1433"|"3389"|"5900")
+                        high_risk_ports+=("$port ($service)")
+                        ;;
+                    "22"|"53"|"80"|"443"|"993"|"995"|"3306"|"5432"|"6379"|"8080"|"27017")
+                        medium_risk_ports+=("$port ($service)")
+                        ;;
+                esac
+            fi
+        done
+        
+        # Assess overall risk
+        local risk_level="INFO"
+        local recommendation=""
+        local port_summary="${#open_ports[@]} risky ports open"
+        
+        if [[ ${#high_risk_ports[@]} -gt 0 ]]; then
+            risk_level="HIGH"
+            local high_risk_list=$(IFS=", "; echo "${high_risk_ports[*]}")
+            recommendation="High-risk ports open: $high_risk_list. Close unnecessary services and use firewalls"
+            port_summary="$port_summary (${#high_risk_ports[@]} high-risk)"
+            
+        elif [[ ${#medium_risk_ports[@]} -gt 0 ]]; then
+            risk_level="MEDIUM"
+            local medium_risk_list=$(IFS=", "; echo "${medium_risk_ports[*]}")
+            recommendation="Medium-risk ports open: $medium_risk_list. Ensure proper security configuration"
+            port_summary="$port_summary (${#medium_risk_ports[@]} medium-risk)"
+            
+        elif [[ ${#open_ports[@]} -gt 0 ]]; then
+            risk_level="LOW"
+            recommendation="Monitor open ports and ensure they are necessary for system operation"
+        fi
+        
+        local port_details=""
+        if [[ ${#open_ports[@]} -gt 0 ]]; then
+            port_details="Open: $(IFS=", "; echo "${open_ports[*]}")"
         else
-            echo "," >> "$json_file"
+            port_details="No risky ports detected listening"
         fi
         
-        # Parse JSON finding using native bash/sed/awk (no Python dependency)
-        local category=$(echo "$finding" | sed -n 's/.*"category":"\([^"]*\)".*/\1/p' | head -1)
-        local item=$(echo "$finding" | sed -n 's/.*"item":"\([^"]*\)".*/\1/p' | head -1)
-        local value=$(echo "$finding" | sed -n 's/.*"value":"\([^"]*\)".*/\1/p' | head -1)
-        local details=$(echo "$finding" | sed -n 's/.*"details":"\([^"]*\)".*/\1/p' | head -1)
-        local risk_level=$(echo "$finding" | sed -n 's/.*"risk_level":"\([^"]*\)".*/\1/p' | head -1)
-        local recommendation=$(echo "$finding" | sed -n 's/.*"recommendation":"\([^"]*\)".*/\1/p' | head -1)
+        # Network analysis module handles detailed port analysis
         
-        # Set defaults if parsing failed
-        [[ -z "$category" ]] && category="Unknown"
-        [[ -z "$item" ]] && item="Unknown"
-        [[ -z "$value" ]] && value="Unknown"
-        [[ -z "$risk_level" ]] && risk_level="INFO"
-
-        # Skip empty or malformed entries
-        if [[ "$item" == "Unknown" && "$value" == "Unknown" ]]; then
-            continue
-        fi
-
-        # Generate finding ID
-        local finding_id="macOS-$(echo "$category$item" | tr '[:upper:]' '[:lower:]' | tr ' ' '-' | tr -cd '[:alnum:]-')"
-        
-        cat >> "$json_file" << EOF
-      {
-        "finding_id": "$finding_id",
-        "category": "$category",
-        "item": "$item",
-        "value": "$value",
-        "requirement": "$details",
-        "risk_level": "$risk_level",
-        "recommendation": "$recommendation",
-        "framework": "macOS_Security_Assessment"
-      }
-EOF
-    done
-
-    cat >> "$json_file" << EOF
-    ]
-  },
-  "summary": {
-    "total_findings": ${#ALL_FINDINGS[@]},
-    "risk_distribution": {
-      "HIGH": $RISK_COUNT_HIGH,
-      "MEDIUM": $RISK_COUNT_MEDIUM,
-      "LOW": $RISK_COUNT_LOW,
-      "INFO": $RISK_COUNT_INFO
-    }
-  }
-}
-EOF
-
-    log_message "SUCCESS" "JSON raw data exported: $json_file" "REPORT"
-}
-
-collect_all_findings() {
-    log_message "INFO" "Collecting findings from all modules..." "REPORT"
-    
-    # Initialize arrays and counters
-    ALL_FINDINGS=()
-    RISK_COUNT_HIGH=0
-    RISK_COUNT_MEDIUM=0
-    RISK_COUNT_LOW=0
-    RISK_COUNT_INFO=0
-    
-    # Collect findings from each module if functions exist
-    local module_functions=(
-        "get_system_findings"
-        "get_security_findings"
-        "get_software_findings"
-        "get_network_findings"
-        "get_user_findings"
-        "get_patch_findings"
-        "get_disk_findings"
-        "get_memory_findings"
-        "get_process_findings"
-    )
-    
-    for func in "${module_functions[@]}"; do
-        if declare -f "$func" >/dev/null 2>&1; then
-            log_message "INFO" "Collecting findings from $func..." "REPORT"
-            while IFS= read -r finding; do
-                if [[ -n "$finding" ]]; then
-                    ALL_FINDINGS+=("$finding")
-                    
-                    # Count risk levels using native bash
-                    local risk_level=$(echo "$finding" | sed -n 's/.*"risk_level":"\([^"]*\)".*/\1/p' | head -1)
-                    [[ -z "$risk_level" ]] && risk_level="INFO"
-                    case "$risk_level" in
-                        "HIGH") ((RISK_COUNT_HIGH++)) ;;
-                        "MEDIUM") ((RISK_COUNT_MEDIUM++)) ;;
-                        "LOW") ((RISK_COUNT_LOW++)) ;;
-                        *) ((RISK_COUNT_INFO++)) ;;
-                    esac
-                fi
-            done < <($func 2>/dev/null || echo "")
-        fi
-    done
-    
-    log_message "SUCCESS" "Collected ${#ALL_FINDINGS[@]} total findings" "REPORT"
-}
-
-generate_markdown_header() {
-    cat << EOF
-# macOS Workstation Security Audit Report
-
-**Computer:** $COMPUTER_NAME
-**Generated:** $(date '+%Y-%m-%d %H:%M:%S')
-**Tool Version:** macOS Workstation Auditor v$CONFIG_VERSION
-
-EOF
-}
-
-generate_executive_summary() {
-    cat << EOF
-## Executive Summary
-
-| Risk Level | Count | Priority |
-|------------|-------|----------|
-| HIGH | $RISK_COUNT_HIGH | Immediate Action Required |
-| MEDIUM | $RISK_COUNT_MEDIUM | Review and Plan Remediation |
-| LOW | $RISK_COUNT_LOW | Monitor and Maintain |
-| INFO | $RISK_COUNT_INFO | Informational |
-
-EOF
-}
-
-generate_critical_action_items() {
-    # Only generate this section if there are HIGH or MEDIUM risk items
-    if [[ $RISK_COUNT_HIGH -gt 0 || $RISK_COUNT_MEDIUM -gt 0 ]]; then
-        cat << EOF
-## Critical Action Items
-
-EOF
-        
-        if [[ $RISK_COUNT_HIGH -gt 0 ]]; then
-            cat << EOF
-### HIGH PRIORITY (Immediate Action Required)
-
-EOF
-            for finding in "${ALL_FINDINGS[@]}"; do
-                local finding_risk=$(echo "$finding" | sed -n 's/.*"risk_level":"\([^"]*\)".*/\1/p' | head -1)
-                [[ -z "$finding_risk" ]] && finding_risk="INFO"
-                
-                if [[ "$finding_risk" == "HIGH" ]]; then
-                    local category=$(echo "$finding" | sed -n 's/.*"category":"\([^"]*\)".*/\1/p' | head -1)
-                    local item=$(echo "$finding" | sed -n 's/.*"item":"\([^"]*\)".*/\1/p' | head -1)
-                    local value=$(echo "$finding" | sed -n 's/.*"value":"\([^"]*\)".*/\1/p' | head -1)
-                    local details=$(echo "$finding" | sed -n 's/.*"details":"\([^"]*\)".*/\1/p' | head -1)
-                    local recommendation=$(echo "$finding" | sed -n 's/.*"recommendation":"\([^"]*\)".*/\1/p' | head -1)
-                    
-                    [[ -z "$category" ]] && category="Unknown"
-                    [[ -z "$item" ]] && item="Unknown"
-                    [[ -z "$value" ]] && value="Unknown"
-                    
-                    cat << EOF
-- **$category - $item:** $value
-  - Details: $details
-EOF
-                    if [[ -n "$recommendation" ]]; then
-                        cat << EOF
-  - Recommendation: $recommendation
-EOF
-                    fi
-                    echo ""
-                fi
-            done
-        fi
-        
-        if [[ $RISK_COUNT_MEDIUM -gt 0 ]]; then
-            cat << EOF
-### MEDIUM PRIORITY (Review and Plan)
-
-EOF
-            for finding in "${ALL_FINDINGS[@]}"; do
-                local finding_risk=$(echo "$finding" | sed -n 's/.*"risk_level":"\([^"]*\)".*/\1/p' | head -1)
-                [[ -z "$finding_risk" ]] && finding_risk="INFO"
-                
-                if [[ "$finding_risk" == "MEDIUM" ]]; then
-                    local category=$(echo "$finding" | sed -n 's/.*"category":"\([^"]*\)".*/\1/p' | head -1)
-                    local item=$(echo "$finding" | sed -n 's/.*"item":"\([^"]*\)".*/\1/p' | head -1)
-                    local value=$(echo "$finding" | sed -n 's/.*"value":"\([^"]*\)".*/\1/p' | head -1)
-                    local details=$(echo "$finding" | sed -n 's/.*"details":"\([^"]*\)".*/\1/p' | head -1)
-                    local recommendation=$(echo "$finding" | sed -n 's/.*"recommendation":"\([^"]*\)".*/\1/p' | head -1)
-                    
-                    [[ -z "$category" ]] && category="Unknown"
-                    [[ -z "$item" ]] && item="Unknown"
-                    [[ -z "$value" ]] && value="Unknown"
-                    
-                    cat << EOF
-- **$category - $item:** $value
-  - Details: $details
-EOF
-                    if [[ -n "$recommendation" ]]; then
-                        cat << EOF
-  - Recommendation: $recommendation
-EOF
-                    fi
-                    echo ""
-                fi
-            done
-        fi
+    else
+        add_finding "Network" "Open Ports" "Unable to check" "netstat command not available" "LOW" "Install network utilities to check open ports"
     fi
 }
 
-generate_additional_information() {
-    # Get LOW and INFO items, grouped by category, excluding categories that appear in Critical Action Items
-    local additional_items=()
-    local critical_categories=()
+# Helper function to add findings to the array
+add_finding() {
+    local category="$1"
+    local item="$2"
+    local value="$3"
+    local details="$4"
+    local risk_level="$5"
+    local recommendation="$6"
     
-    # Debug: Log the number of findings we're starting with
-    log_message "INFO" "Total findings to process: ${#ALL_FINDINGS[@]}" "REPORT"
-    
-    # First, collect categories that appear in HIGH/MEDIUM findings
-    for finding in "${ALL_FINDINGS[@]}"; do
-        local finding_risk=$(echo "$finding" | sed -n 's/.*"risk_level":"\([^"]*\)".*/\1/p' | head -1)
-        [[ -z "$finding_risk" ]] && finding_risk="INFO"
-        
-        if [[ "$finding_risk" == "HIGH" || "$finding_risk" == "MEDIUM" ]]; then
-            local category=$(echo "$finding" | sed -n 's/.*"category":"\([^"]*\)".*/\1/p' | head -1)
-            [[ -n "$category" ]] && critical_categories+=("$category")
-        fi
-    done
-    
-    # Collect LOW and INFO items not in critical categories
-    for finding in "${ALL_FINDINGS[@]}"; do
-        local finding_risk=$(echo "$finding" | sed -n 's/.*"risk_level":"\([^"]*\)".*/\1/p' | head -1)
-        [[ -z "$finding_risk" ]] && finding_risk="INFO"
-        
-        if [[ "$finding_risk" == "LOW" || "$finding_risk" == "INFO" ]]; then
-            local category=$(echo "$finding" | sed -n 's/.*"category":"\([^"]*\)".*/\1/p' | head -1)
-            local item=$(echo "$finding" | sed -n 's/.*"item":"\([^"]*\)".*/\1/p' | head -1)
-            
-            # Check if this category appears in critical findings
-            local is_critical_category=false
-            for crit_cat in "${critical_categories[@]}"; do
-                if [[ "$category" == "$crit_cat" ]]; then
-                    is_critical_category=true
-                    break
-                fi
-            done
-            
-            # Exclude items that appear in dedicated sections
-            local is_dedicated_section_item=false
-
-            # Exclude System Configuration items
-            if [[ "$category" == "System" ]]; then
-                case "$item" in
-                    "Operating System"|"Hardware"|"Computer Name"|"System Uptime"|"Time Machine Backups"|"Backup Solutions")
-                        is_dedicated_section_item=true
-                        ;;
-                esac
-            fi
-
-            # Exclude Management items (now in System Configuration)
-            if [[ "$category" == "Management" ]]; then
-                case "$item" in
-                    "MDM Enrollment"|"Apple Business Manager"|"Device Supervision"|"Configuration Profiles")
-                        is_dedicated_section_item=true
-                        ;;
-                esac
-            fi
-
-            # Exclude Process items (now in Process Analysis)
-            if [[ "$category" == "Process" ]]; then
-                case "$item" in
-                    "Process Activity"|"Top 5 Process CPU Usage"|"Top 5 Process Memory Usage")
-                        is_dedicated_section_item=true
-                        ;;
-                esac
-            fi
-
-            # Exclude Memory items (now in Memory Analysis)
-            if [[ "$category" == "Memory" ]]; then
-                case "$item" in
-                    "Memory Usage"|"Top 5 Process Memory Usage"|"Memory Pressure")
-                        is_dedicated_section_item=true
-                        ;;
-                esac
-            fi
-
-            # Exclude Storage items (now in Disk Analysis) but allow Directory items to remain excluded
-            if [[ ("$category" == "Storage" || "$item" =~ "Disk") && ! "$item" =~ "Directory:" ]]; then
-                is_dedicated_section_item=true
-            fi
-
-            # Always exclude directory listings (unwanted fluff)
-            if [[ "$item" =~ "Directory:" ]]; then
-                is_dedicated_section_item=true
-            fi
-
-            # Exclude Network items (now in Network Analysis)
-            if [[ "$category" == "Network" ]]; then
-                case "$item" in
-                    "Active Interfaces"|"Primary IP Address"|"Wi-Fi Status"|"Saved Wi-Fi Networks"|"DNS Servers"|"Listening Services"|"Sharing Services"|"VPN Configuration"|"High-Risk Listening Ports")
-                        is_dedicated_section_item=true
-                        ;;
-                esac
-            fi
-
-            # Always exclude established connections (unwanted noise)
-            if [[ "$item" == "Established Connections" ]]; then
-                is_dedicated_section_item=true
-            fi
-
-            # Exclude port findings (now in Network Analysis)
-            if [[ "$item" =~ "Port " && "$category" == "Network" ]]; then
-                is_dedicated_section_item=true
-            fi
-
-            # Include only non-critical categories and non-dedicated section items - no duplicates allowed
-            if [[ "$is_critical_category" == false && "$is_dedicated_section_item" == false ]]; then
-                additional_items+=("$finding")
-            fi
-        fi
-    done
-    
-    if [[ ${#additional_items[@]} -gt 0 ]]; then
-        cat << EOF
-## Additional Information
-
-EOF
-        
-        # Group by category and only output categories that have items
-        local categories=()
-        log_message "INFO" "Additional items count: ${#additional_items[@]}" "REPORT"
-        
-        for finding in "${additional_items[@]}"; do
-            local category=$(echo "$finding" | sed -n 's/.*"category":"\([^"]*\)".*/\1/p' | head -1)
-            [[ -z "$category" ]] && category="Unknown"
-            
-            log_message "INFO" "Found category: '$category' from finding: $(echo "$finding" | cut -c1-100)..." "REPORT"
-            
-            # Add to categories if not already present
-            local category_exists=false
-            for existing_cat in "${categories[@]}"; do
-                if [[ "$existing_cat" == "$category" ]]; then
-                    category_exists=true
-                    break
-                fi
-            done
-            [[ "$category_exists" == false ]] && categories+=("$category")
-        done
-        
-        log_message "INFO" "Categories collected: ${categories[*]}" "REPORT"
-        
-        # Sort and output categories, but only if they have items
-        for category in $(printf '%s\n' "${categories[@]}" | sort); do
-            # First check if this category actually has items
-            local category_has_items=false
-            for finding in "${additional_items[@]}"; do
-                local finding_category=$(echo "$finding" | sed -n 's/.*"category":"\([^"]*\)".*/\1/p' | head -1)
-                [[ -z "$finding_category" ]] && finding_category="Unknown"
-                
-                if [[ "$finding_category" == "$category" ]]; then
-                    category_has_items=true
-                    break
-                fi
-            done
-            
-            # Only output the category if it has items
-            if [[ "$category_has_items" == true ]]; then
-                cat << EOF
-### $category
-
-EOF
-                
-                for finding in "${additional_items[@]}"; do
-                    local finding_category=$(echo "$finding" | sed -n 's/.*"category":"\([^"]*\)".*/\1/p' | head -1)
-                    [[ -z "$finding_category" ]] && finding_category="Unknown"
-                    
-                    if [[ "$finding_category" == "$category" ]]; then
-                        local item=$(echo "$finding" | sed -n 's/.*"item":"\([^"]*\)".*/\1/p' | head -1)
-                        local value=$(echo "$finding" | sed -n 's/.*"value":"\([^"]*\)".*/\1/p' | head -1)
-                        local details=$(echo "$finding" | sed -n 's/.*"details":"\([^"]*\)".*/\1/p' | head -1)
-                        local recommendation=$(echo "$finding" | sed -n 's/.*"recommendation":"\([^"]*\)".*/\1/p' | head -1)
-                        local risk_level=$(echo "$finding" | sed -n 's/.*"risk_level":"\([^"]*\)".*/\1/p' | head -1)
-                        
-                        [[ -z "$item" ]] && item="Unknown"
-                        [[ -z "$value" ]] && value="Unknown"
-                        [[ -z "$risk_level" ]] && risk_level="INFO"
-                        
-                        # Skip empty or malformed entries
-                        if [[ "$item" == "Unknown" && "$value" == "Unknown" ]]; then
-                            continue
-                        fi
-                        
-                        local risk_icon="[INFO]"
-                        [[ "$risk_level" == "LOW" ]] && risk_icon="[LOW]"
-                        
-                        cat << EOF
-**$risk_icon $item:** $value
-
-- **Details:** $details
-EOF
-                        if [[ -n "$recommendation" ]]; then
-                            cat << EOF
-- **Recommendation:** $recommendation
-EOF
-                        fi
-                        echo ""
-                    fi
-                done
-            fi
-        done
-    fi
+    SYSTEM_FINDINGS+=("{\"category\":\"$category\",\"item\":\"$item\",\"value\":\"$value\",\"details\":\"$details\",\"risk_level\":\"$risk_level\",\"recommendation\":\"$recommendation\"}")
 }
 
-generate_system_overview() {
-    cat << EOF
-## System Overview
-
-EOF
-
-    # Core system identification - no duplicates, clean format
-    for finding in "${ALL_FINDINGS[@]}"; do
-        local item=$(echo "$finding" | sed -n 's/.*"item":"\([^"]*\)".*/\1/p' | head -1)
-        if [[ "$item" == "Operating System" ]]; then
-            local value=$(echo "$finding" | sed -n 's/.*"value":"\([^"]*\)".*/\1/p' | head -1)
-            local details=$(echo "$finding" | sed -n 's/.*"details":"\([^"]*\)".*/\1/p' | head -1)
-            echo "- **Operating System:** $value - $details"
-            break
-        fi
-    done
-
-    for finding in "${ALL_FINDINGS[@]}"; do
-        local item=$(echo "$finding" | sed -n 's/.*"item":"\([^"]*\)".*/\1/p' | head -1)
-        if [[ "$item" == "Hardware" ]]; then
-            local value=$(echo "$finding" | sed -n 's/.*"value":"\([^"]*\)".*/\1/p' | head -1)
-            local details=$(echo "$finding" | sed -n 's/.*"details":"\([^"]*\)".*/\1/p' | head -1)
-            echo "- **Hardware:** $value - $details"
-            break
-        fi
-    done
-
-    for finding in "${ALL_FINDINGS[@]}"; do
-        local item=$(echo "$finding" | sed -n 's/.*"item":"\([^"]*\)".*/\1/p' | head -1)
-        if [[ "$item" == "Computer Name" ]]; then
-            local value=$(echo "$finding" | sed -n 's/.*"value":"\([^"]*\)".*/\1/p' | head -1)
-            local details=$(echo "$finding" | sed -n 's/.*"details":"\([^"]*\)".*/\1/p' | head -1)
-            echo "- **Computer Name:** $value - $details"
-            break
-        fi
-    done
-
-    for finding in "${ALL_FINDINGS[@]}"; do
-        local item=$(echo "$finding" | sed -n 's/.*"item":"\([^"]*\)".*/\1/p' | head -1)
-        if [[ "$item" == "System Uptime" ]]; then
-            local value=$(echo "$finding" | sed -n 's/.*"value":"\([^"]*\)".*/\1/p' | head -1)
-            local details=$(echo "$finding" | sed -n 's/.*"details":"\([^"]*\)".*/\1/p' | head -1)
-            echo "- **Uptime:** $value - $details"
-            break
-        fi
-    done
-
-    # Updates section (moved here from buried location)
-    for finding in "${ALL_FINDINGS[@]}"; do
-        local item=$(echo "$finding" | sed -n 's/.*"item":"\([^"]*\)".*/\1/p' | head -1)
-        if [[ "$item" == "Available Updates" ]]; then
-            local value=$(echo "$finding" | sed -n 's/.*"value":"\([^"]*\)".*/\1/p' | head -1)
-            local details=$(echo "$finding" | sed -n 's/.*"details":"\([^"]*\)".*/\1/p' | head -1)
-            echo "- **Updates:** $value - $details"
-            break
-        fi
-    done
-
-    echo ""
+# Function to get findings for report generation
+get_system_findings() {
+    printf '%s\n' "${SYSTEM_FINDINGS[@]}"
 }
 
-generate_system_resources() {
-    cat << EOF
-## System Resources
-
-EOF
-
-    # Memory - show once, no duplicates
-    for finding in "${ALL_FINDINGS[@]}"; do
-        local item=$(echo "$finding" | sed -n 's/.*"item":"\([^"]*\)".*/\1/p' | head -1)
-        if [[ "$item" == "Memory Usage" ]]; then
-            local value=$(echo "$finding" | sed -n 's/.*"value":"\([^"]*\)".*/\1/p' | head -1)
-            local details=$(echo "$finding" | sed -n 's/.*"details":"\([^"]*\)".*/\1/p' | head -1)
-            echo "- **Memory Usage:** $value - $details"
-            break
-        fi
-    done
-
-    # Top memory processes - show once
-    for finding in "${ALL_FINDINGS[@]}"; do
-        local item=$(echo "$finding" | sed -n 's/.*"item":"\([^"]*\)".*/\1/p' | head -1)
-        if [[ "$item" == "Top 5 Process Memory Usage" ]]; then
-            local value=$(echo "$finding" | sed -n 's/.*"value":"\([^"]*\)".*/\1/p' | head -1)
-            local details=$(echo "$finding" | sed -n 's/.*"details":"\([^"]*\)".*/\1/p' | head -1)
-            echo "- **Top Memory Processes:** $value - $details"
-            break
-        fi
-    done
-
-    # Top CPU processes - show if available for consistency
-    for finding in "${ALL_FINDINGS[@]}"; do
-        local item=$(echo "$finding" | sed -n 's/.*"item":"\([^"]*\)".*/\1/p' | head -1)
-        if [[ "$item" == "Top 5 Process CPU Usage" ]]; then
-            local value=$(echo "$finding" | sed -n 's/.*"value":"\([^"]*\)".*/\1/p' | head -1)
-            local details=$(echo "$finding" | sed -n 's/.*"details":"\([^"]*\)".*/\1/p' | head -1)
-            echo "- **Top CPU Processes:** $value - $details"
-            break
-        fi
-    done
-
-    # Process count - show once
-    for finding in "${ALL_FINDINGS[@]}"; do
-        local item=$(echo "$finding" | sed -n 's/.*"item":"\([^"]*\)".*/\1/p' | head -1)
-        if [[ "$item" == "Process Activity" ]]; then
-            local value=$(echo "$finding" | sed -n 's/.*"value":"\([^"]*\)".*/\1/p' | head -1)
-            local details=$(echo "$finding" | sed -n 's/.*"details":"\([^"]*\)".*/\1/p' | head -1)
-            echo "- **Active Processes:** $value - $details"
-            break
-        fi
-    done
-
-    # Disk usage - show only the main volume, no directory clutter
-    for finding in "${ALL_FINDINGS[@]}"; do
-        local item=$(echo "$finding" | sed -n 's/.*"item":"\([^"]*\)".*/\1/p' | head -1)
-        local risk_level=$(echo "$finding" | sed -n 's/.*"risk_level":"\([^"]*\)".*/\1/p' | head -1)
-        if [[ "$item" =~ "Disk Usage: /System/Volumes/Data" ]]; then
-            local value=$(echo "$finding" | sed -n 's/.*"value":"\([^"]*\)".*/\1/p' | head -1)
-            local details=$(echo "$finding" | sed -n 's/.*"details":"\([^"]*\)".*/\1/p' | head -1)
-            local recommendation=$(echo "$finding" | sed -n 's/.*"recommendation":"\([^"]*\)".*/\1/p' | head -1)
-            if [[ "$risk_level" == "MEDIUM" || "$risk_level" == "HIGH" ]]; then
-                echo "- **Disk Space Warning:** $value - $details"
-                if [[ -n "$recommendation" ]]; then
-                    echo "  - Action: $recommendation"
-                fi
-            else
-                echo "- **Disk Space:** $value - $details"
-            fi
-            break
-        fi
-    done
-
-    echo ""
-}
-
-generate_network_interfaces() {
-    cat << EOF
-## Network Configuration
-
-EOF
-
-    # Network interface basics - no duplicates
-    for finding in "${ALL_FINDINGS[@]}"; do
-        local item=$(echo "$finding" | sed -n 's/.*"item":"\([^"]*\)".*/\1/p' | head -1)
-        if [[ "$item" == "Active Interfaces" ]]; then
-            local value=$(echo "$finding" | sed -n 's/.*"value":"\([^"]*\)".*/\1/p' | head -1)
-            local details=$(echo "$finding" | sed -n 's/.*"details":"\([^"]*\)".*/\1/p' | head -1)
-            echo "- **Network Status:** $value - $details"
-            break
-        fi
-    done
-
-    for finding in "${ALL_FINDINGS[@]}"; do
-        local item=$(echo "$finding" | sed -n 's/.*"item":"\([^"]*\)".*/\1/p' | head -1)
-        if [[ "$item" == "Primary IP Address" ]]; then
-            local value=$(echo "$finding" | sed -n 's/.*"value":"\([^"]*\)".*/\1/p' | head -1)
-            local details=$(echo "$finding" | sed -n 's/.*"details":"\([^"]*\)".*/\1/p' | head -1)
-            echo "- **IP Address:** $value - $details"
-            break
-        fi
-    done
-
-    for finding in "${ALL_FINDINGS[@]}"; do
-        local item=$(echo "$finding" | sed -n 's/.*"item":"\([^"]*\)".*/\1/p' | head -1)
-        if [[ "$item" == "DNS Servers" ]]; then
-            local value=$(echo "$finding" | sed -n 's/.*"value":"\([^"]*\)".*/\1/p' | head -1)
-            local details=$(echo "$finding" | sed -n 's/.*"details":"\([^"]*\)".*/\1/p' | head -1)
-            echo "- **DNS:** $value - $details"
-            break
-        fi
-    done
-
-    # VPN info if present
-    for finding in "${ALL_FINDINGS[@]}"; do
-        local item=$(echo "$finding" | sed -n 's/.*"item":"\([^"]*\)".*/\1/p' | head -1)
-        if [[ "$item" == "VPN Configuration" ]]; then
-            local value=$(echo "$finding" | sed -n 's/.*"value":"\([^"]*\)".*/\1/p' | head -1)
-            local details=$(echo "$finding" | sed -n 's/.*"details":"\([^"]*\)".*/\1/p' | head -1)
-            echo "- **VPN:** $value - $details"
-            break
-        fi
-    done
-
-    echo ""
-}
-
-generate_security_management() {
-    cat << EOF
-## Security & Management
-
-EOF
-
-    # Authentication
-    for finding in "${ALL_FINDINGS[@]}"; do
-        local item=$(echo "$finding" | sed -n 's/.*"item":"\([^"]*\)".*/\1/p' | head -1)
-        if [[ "$item" == "Login Management" ]]; then
-            local value=$(echo "$finding" | sed -n 's/.*"value":"\([^"]*\)".*/\1/p' | head -1)
-            local details=$(echo "$finding" | sed -n 's/.*"details":"\([^"]*\)".*/\1/p' | head -1)
-            echo "- **Authentication:** $value - $details"
-            break
-        fi
-    done
-
-    # MDM and management - consolidated
-    for finding in "${ALL_FINDINGS[@]}"; do
-        local item=$(echo "$finding" | sed -n 's/.*"item":"\([^"]*\)".*/\1/p' | head -1)
-        if [[ "$item" == "MDM Enrollment" ]]; then
-            local value=$(echo "$finding" | sed -n 's/.*"value":"\([^"]*\)".*/\1/p' | head -1)
-            echo "- **Device Management:** $value (MDM)"
-            break
-        fi
-    done
-
-    for finding in "${ALL_FINDINGS[@]}"; do
-        local item=$(echo "$finding" | sed -n 's/.*"item":"\([^"]*\)".*/\1/p' | head -1)
-        if [[ "$item" == "Device Supervision" ]]; then
-            local value=$(echo "$finding" | sed -n 's/.*"value":"\([^"]*\)".*/\1/p' | head -1)
-            echo "- **Device Supervision:** $value"
-            break
-        fi
-    done
-
-    # Backup - fix the duplicate issue
-    local backup_found=false
-    for finding in "${ALL_FINDINGS[@]}"; do
-        local item=$(echo "$finding" | sed -n 's/.*"item":"\([^"]*\)".*/\1/p' | head -1)
-        if [[ "$item" == "Time Machine Backups" && "$backup_found" == false ]]; then
-            local value=$(echo "$finding" | sed -n 's/.*"value":"\([^"]*\)".*/\1/p' | head -1)
-            local details=$(echo "$finding" | sed -n 's/.*"details":"\([^"]*\)".*/\1/p' | head -1)
-            local recommendation=$(echo "$finding" | sed -n 's/.*"recommendation":"\([^"]*\)".*/\1/p' | head -1)
-            echo "- **Backup (Time Machine):** $value - $details"
-            if [[ -n "$recommendation" ]]; then
-                echo "  - Action: $recommendation"
-            fi
-            backup_found=true
-            break
-        fi
-    done
-
-    echo ""
-}
-
-generate_security_analysis() {
-    cat << EOF
-## Security Analysis
-
-EOF
-
-    # High-risk ports - show once at top, no duplicates
-    for finding in "${ALL_FINDINGS[@]}"; do
-        local item=$(echo "$finding" | sed -n 's/.*"item":"\([^"]*\)".*/\1/p' | head -1)
-        local risk_level=$(echo "$finding" | sed -n 's/.*"risk_level":"\([^"]*\)".*/\1/p' | head -1)
-        if [[ "$item" == "High-Risk Listening Ports" ]]; then
-            local value=$(echo "$finding" | sed -n 's/.*"value":"\([^"]*\)".*/\1/p' | head -1)
-            local details=$(echo "$finding" | sed -n 's/.*"details":"\([^"]*\)".*/\1/p' | head -1)
-            local recommendation=$(echo "$finding" | sed -n 's/.*"recommendation":"\([^"]*\)".*/\1/p' | head -1)
-            echo "- **Risky Network Ports:** $value - $details"
-            if [[ -n "$recommendation" ]]; then
-                echo "  - Action: $recommendation"
-            fi
-            break
-        fi
-    done
-
-    # Network services - combine listening services with actual port details
-    local listening_count=""
-    for finding in "${ALL_FINDINGS[@]}"; do
-        local item=$(echo "$finding" | sed -n 's/.*"item":"\([^"]*\)".*/\1/p' | head -1)
-        if [[ "$item" == "Listening Services" ]]; then
-            local value=$(echo "$finding" | sed -n 's/.*"value":"\([^"]*\)".*/\1/p' | head -1)
-            listening_count="$value"
-            break
-        fi
-    done
-
-    # Show specific ports found
-    local port_details=""
-    for finding in "${ALL_FINDINGS[@]}"; do
-        local item=$(echo "$finding" | sed -n 's/.*"item":"\([^"]*\)".*/\1/p' | head -1)
-        if [[ "$item" =~ "Port " ]]; then
-            local details=$(echo "$finding" | sed -n 's/.*"details":"\([^"]*\)".*/\1/p' | head -1)
-            if [[ -n "$port_details" ]]; then
-                port_details="$port_details, $details"
-            else
-                port_details="$details"
-            fi
-        fi
-    done
-
-    if [[ -n "$listening_count" ]]; then
-        echo "- **Network Services:** $listening_count"
-        if [[ -n "$port_details" ]]; then
-            echo "  - Active: $port_details"
-        fi
-    fi
-
-    # Remote access software
-    for finding in "${ALL_FINDINGS[@]}"; do
-        local item=$(echo "$finding" | sed -n 's/.*"item":"\([^"]*\)".*/\1/p' | head -1)
-        local risk_level=$(echo "$finding" | sed -n 's/.*"risk_level":"\([^"]*\)".*/\1/p' | head -1)
-        if [[ "$item" == "Remote Access Software" ]]; then
-            local value=$(echo "$finding" | sed -n 's/.*"value":"\([^"]*\)".*/\1/p' | head -1)
-            local details=$(echo "$finding" | sed -n 's/.*"details":"\([^"]*\)".*/\1/p' | head -1)
-            local recommendation=$(echo "$finding" | sed -n 's/.*"recommendation":"\([^"]*\)".*/\1/p' | head -1)
-            echo "- **Remote Access Tools:** $value - $details"
-            if [[ -n "$recommendation" ]]; then
-                echo "  - Action: $recommendation"
-            fi
-            break
-        fi
-    done
-
-    # Antivirus/Antimalware detection
-    for finding in "${ALL_FINDINGS[@]}"; do
-        local item=$(echo "$finding" | sed -n 's/.*"item":"\([^"]*\)".*/\1/p' | head -1)
-        if [[ "$item" == "Third-party Antivirus" ]]; then
-            local value=$(echo "$finding" | sed -n 's/.*"value":"\([^"]*\)".*/\1/p' | head -1)
-            local details=$(echo "$finding" | sed -n 's/.*"details":"\([^"]*\)".*/\1/p' | head -1)
-            echo "- **Antivirus Protection:** $value - $details"
-            break
-        fi
-    done
-
-    # RMM/Remote Management Tools
-    for finding in "${ALL_FINDINGS[@]}"; do
-        local item=$(echo "$finding" | sed -n 's/.*"item":"\([^"]*\)".*/\1/p' | head -1)
-        if [[ "$item" == "RMM Tools" || "$item" == "Remote Management" ]]; then
-            local value=$(echo "$finding" | sed -n 's/.*"value":"\([^"]*\)".*/\1/p' | head -1)
-            local details=$(echo "$finding" | sed -n 's/.*"details":"\([^"]*\)".*/\1/p' | head -1)
-            local recommendation=$(echo "$finding" | sed -n 's/.*"recommendation":"\([^"]*\)".*/\1/p' | head -1)
-            echo "- **RMM Tools:** $value - $details"
-            if [[ -n "$recommendation" ]]; then
-                echo "  - Action: $recommendation"
-            fi
-            break
-        fi
-    done
-
-    # iCloud Status
-    for finding in "${ALL_FINDINGS[@]}"; do
-        local item=$(echo "$finding" | sed -n 's/.*"item":"\([^"]*\)".*/\1/p' | head -1)
-        if [[ "$item" == "iCloud Status" ]]; then
-            local value=$(echo "$finding" | sed -n 's/.*"value":"\([^"]*\)".*/\1/p' | head -1)
-            local details=$(echo "$finding" | sed -n 's/.*"details":"\([^"]*\)".*/\1/p' | head -1)
-            echo "- **iCloud Status:** $value - $details"
-            break
-        fi
-    done
-
-    # Find My Status
-    for finding in "${ALL_FINDINGS[@]}"; do
-        local item=$(echo "$finding" | sed -n 's/.*"item":"\([^"]*\)".*/\1/p' | head -1)
-        if [[ "$item" == "Find My" ]]; then
-            local value=$(echo "$finding" | sed -n 's/.*"value":"\([^"]*\)".*/\1/p' | head -1)
-            local details=$(echo "$finding" | sed -n 's/.*"details":"\([^"]*\)".*/\1/p' | head -1)
-            echo "- **Find My:** $value - $details"
-            break
-        fi
-    done
-
-    # WiFi security concerns
-    for finding in "${ALL_FINDINGS[@]}"; do
-        local item=$(echo "$finding" | sed -n 's/.*"item":"\([^"]*\)".*/\1/p' | head -1)
-        local risk_level=$(echo "$finding" | sed -n 's/.*"risk_level":"\([^"]*\)".*/\1/p' | head -1)
-        if [[ "$item" == "Saved Wi-Fi Networks" && "$risk_level" == "LOW" ]]; then
-            local value=$(echo "$finding" | sed -n 's/.*"value":"\([^"]*\)".*/\1/p' | head -1)
-            local recommendation=$(echo "$finding" | sed -n 's/.*"recommendation":"\([^"]*\)".*/\1/p' | head -1)
-            echo "- **WiFi Security:** $value saved networks"
-            if [[ -n "$recommendation" ]]; then
-                echo "  - Action: $recommendation"
-            fi
-            break
-        fi
-    done
-
-    echo ""
-}
-
-generate_software_inventory() {
-    cat << EOF
-## Software Inventory
-
-EOF
-
-    # Application count
-    for finding in "${ALL_FINDINGS[@]}"; do
-        local item=$(echo "$finding" | sed -n 's/.*"item":"\([^"]*\)".*/\1/p' | head -1)
-        if [[ "$item" == "Total Installed Applications" ]]; then
-            local value=$(echo "$finding" | sed -n 's/.*"value":"\([^"]*\)".*/\1/p' | head -1)
-            local details=$(echo "$finding" | sed -n 's/.*"details":"\([^"]*\)".*/\1/p' | head -1)
-            echo "- **Installed Applications:** $value - $details"
-            break
-        fi
-    done
-
-    # Key applications - show only the important ones
-    local key_apps=("Zoom" "Microsoft Office" "Visual Studio Code" "Docker Desktop" "Safari Browser")
-    for app in "${key_apps[@]}"; do
-        for finding in "${ALL_FINDINGS[@]}"; do
-            local item=$(echo "$finding" | sed -n 's/.*"item":"\([^"]*\)".*/\1/p' | head -1)
-            if [[ "$item" == "$app" ]]; then
-                local value=$(echo "$finding" | sed -n 's/.*"value":"\([^"]*\)".*/\1/p' | head -1)
-                local details=$(echo "$finding" | sed -n 's/.*"details":"\([^"]*\)".*/\1/p' | head -1)
-                echo "- **$app:** $value"
-                break
-            fi
-        done
-    done
-
-    # Development tools summary
-    for finding in "${ALL_FINDINGS[@]}"; do
-        local item=$(echo "$finding" | sed -n 's/.*"item":"\([^"]*\)".*/\1/p' | head -1)
-        if [[ "$item" == "Development Tools" ]]; then
-            local value=$(echo "$finding" | sed -n 's/.*"value":"\([^"]*\)".*/\1/p' | head -1)
-            local details=$(echo "$finding" | sed -n 's/.*"details":"\([^"]*\)".*/\1/p' | head -1)
-            echo "- **Development Tools:** $value - $details"
-            break
-        fi
-    done
-
-    echo ""
-}
-
-# Old process section function removed - replaced by integrated system resources section
-
-generate_memory_section() {
-    cat << EOF
-## Memory Analysis
-
-EOF
-
-    # Get memory-related findings
-    local memory_items=("Memory Usage" "Top 5 Process Memory Usage" "Memory Pressure")
-
-    for memory_item in "${memory_items[@]}"; do
-        for finding in "${ALL_FINDINGS[@]}"; do
-            local item=$(echo "$finding" | sed -n 's/.*"item":"\([^"]*\)".*/\1/p' | head -1)
-            local risk_level=$(echo "$finding" | sed -n 's/.*"risk_level":"\([^"]*\)".*/\1/p' | head -1)
-
-            if [[ "$item" == "$memory_item" ]]; then
-                local value=$(echo "$finding" | sed -n 's/.*"value":"\([^"]*\)".*/\1/p' | head -1)
-                local details=$(echo "$finding" | sed -n 's/.*"details":"\([^"]*\)".*/\1/p' | head -1)
-                local recommendation=$(echo "$finding" | sed -n 's/.*"recommendation":"\([^"]*\)".*/\1/p' | head -1)
-
-                [[ -z "$value" ]] && value="Unknown"
-                [[ -z "$risk_level" ]] && risk_level="INFO"
-
-                local risk_icon="[INFO]"
-                [[ "$risk_level" == "LOW" ]] && risk_icon="[LOW]"
-                [[ "$risk_level" == "MEDIUM" ]] && risk_icon="[MEDIUM]"
-                [[ "$risk_level" == "HIGH" ]] && risk_icon="[HIGH]"
-
-                cat << EOF
-- **$risk_icon $item:** $value
-  - Details: $details
-EOF
-                if [[ -n "$recommendation" ]]; then
-                    cat << EOF
-  - Recommendation: $recommendation
-EOF
-                fi
-                echo ""
-                break
-            fi
-        done
-    done
-}
-
-generate_disk_section() {
-    cat << EOF
-## Disk Analysis
-
-EOF
-
-    # Get disk-related findings - pattern match for disk usage items
-    for finding in "${ALL_FINDINGS[@]}"; do
-        local category=$(echo "$finding" | sed -n 's/.*"category":"\([^"]*\)".*/\1/p' | head -1)
-        local item=$(echo "$finding" | sed -n 's/.*"item":"\([^"]*\)".*/\1/p' | head -1)
-        local risk_level=$(echo "$finding" | sed -n 's/.*"risk_level":"\([^"]*\)".*/\1/p' | head -1)
-
-        # Include Storage category and disk-related items, but exclude individual directory listings
-        if [[ ("$category" == "Storage" || "$item" =~ "Disk") && ! "$item" =~ "Directory:" ]]; then
-            local value=$(echo "$finding" | sed -n 's/.*"value":"\([^"]*\)".*/\1/p' | head -1)
-            local details=$(echo "$finding" | sed -n 's/.*"details":"\([^"]*\)".*/\1/p' | head -1)
-            local recommendation=$(echo "$finding" | sed -n 's/.*"recommendation":"\([^"]*\)".*/\1/p' | head -1)
-
-            [[ -z "$value" ]] && value="Unknown"
-            [[ -z "$risk_level" ]] && risk_level="INFO"
-
-            local risk_icon="[INFO]"
-            [[ "$risk_level" == "LOW" ]] && risk_icon="[LOW]"
-            [[ "$risk_level" == "MEDIUM" ]] && risk_icon="[MEDIUM]"
-            [[ "$risk_level" == "HIGH" ]] && risk_icon="[HIGH]"
-
-            cat << EOF
-- **$risk_icon $item:** $value
-  - Details: $details
-EOF
-            if [[ -n "$recommendation" ]]; then
-                cat << EOF
-  - Recommendation: $recommendation
-EOF
-            fi
-            echo ""
-        fi
-    done
-}
-
-generate_network_section() {
-    cat << EOF
-## Network Analysis
-
-EOF
-
-    # Get network-related findings
-    local network_items=("High-Risk Listening Ports" "Active Interfaces" "Primary IP Address" "Wi-Fi Status" "Saved Wi-Fi Networks" "DNS Servers" "Listening Services" "Sharing Services" "VPN Configuration")
-
-    for network_item in "${network_items[@]}"; do
-        for finding in "${ALL_FINDINGS[@]}"; do
-            local item=$(echo "$finding" | sed -n 's/.*"item":"\([^"]*\)".*/\1/p' | head -1)
-            local risk_level=$(echo "$finding" | sed -n 's/.*"risk_level":"\([^"]*\)".*/\1/p' | head -1)
-
-            if [[ "$item" == "$network_item" ]]; then
-                local value=$(echo "$finding" | sed -n 's/.*"value":"\([^"]*\)".*/\1/p' | head -1)
-                local details=$(echo "$finding" | sed -n 's/.*"details":"\([^"]*\)".*/\1/p' | head -1)
-                local recommendation=$(echo "$finding" | sed -n 's/.*"recommendation":"\([^"]*\)".*/\1/p' | head -1)
-
-                [[ -z "$value" ]] && value="Unknown"
-                [[ -z "$risk_level" ]] && risk_level="INFO"
-
-                local risk_icon="[INFO]"
-                [[ "$risk_level" == "LOW" ]] && risk_icon="[LOW]"
-                [[ "$risk_level" == "MEDIUM" ]] && risk_icon="[MEDIUM]"
-                [[ "$risk_level" == "HIGH" ]] && risk_icon="[HIGH]"
-
-                cat << EOF
-- **$risk_icon $item:** $value
-  - Details: $details
-EOF
-                if [[ -n "$recommendation" ]]; then
-                    cat << EOF
-  - Recommendation: $recommendation
-EOF
-                fi
-                echo ""
-                break
-            fi
-        done
-    done
-
-    # Also include specific port findings that might not match the standard items
-    for finding in "${ALL_FINDINGS[@]}"; do
-        local item=$(echo "$finding" | sed -n 's/.*"item":"\([^"]*\)".*/\1/p' | head -1)
-        local category=$(echo "$finding" | sed -n 's/.*"category":"\([^"]*\)".*/\1/p' | head -1)
-
-        # Include port findings
-        if [[ "$item" =~ "Port " && "$category" == "Network" ]]; then
-            local value=$(echo "$finding" | sed -n 's/.*"value":"\([^"]*\)".*/\1/p' | head -1)
-            local details=$(echo "$finding" | sed -n 's/.*"details":"\([^"]*\)".*/\1/p' | head -1)
-            local risk_level=$(echo "$finding" | sed -n 's/.*"risk_level":"\([^"]*\)".*/\1/p' | head -1)
-
-            [[ -z "$value" ]] && value="Unknown"
-            [[ -z "$risk_level" ]] && risk_level="INFO"
-
-            local risk_icon="[INFO]"
-            [[ "$risk_level" == "LOW" ]] && risk_icon="[LOW]"
-            [[ "$risk_level" == "MEDIUM" ]] && risk_icon="[MEDIUM]"
-            [[ "$risk_level" == "HIGH" ]] && risk_icon="[HIGH]"
-
-            cat << EOF
-- **$risk_icon $item:** $value
-  - Details: $details
-EOF
-            echo ""
-        fi
-    done
-}
-
-generate_recommendations() {
-    # Collect only LOW risk recommendations that aren't already in Critical Action Items
-    local recommendations=()
-    local rec_counts=()
-
-    # Skip only inappropriate recommendations - let the logic determine what to show based on actual status
-    local skip_recommendations=(
-        "1 network printers detected. Ensure they are on trusted networks and use secure protocols"
-        "Evaluate enterprise security solutions such as CrowdStrike, SentinelOne, or Jamf Protect for comprehensive threat detection"
-        "Review remote access software for security and business justification"
-        "Time Machine is configured but no backups have completed. Verify backup destination is accessible"
-        "Review listening services for security implications. Disable unnecessary services"
-        "Disk space is getting low. Monitor usage and consider cleanup"
-        "Backup solutions detected - verify they are configured and running properly"
-        "Consider signing into iCloud for backup and device synchronization"
-        "Sign into iCloud and enable backup for data protection"
-        "Enable Find My for device security and theft protection"
-        "Sign into iCloud to enable Find My"
-    )
-
-    for finding in "${ALL_FINDINGS[@]}"; do
-        local recommendation=$(echo "$finding" | sed -n 's/.*"recommendation":"\([^"]*\)".*/\1/p' | head -1)
-        local risk_level=$(echo "$finding" | sed -n 's/.*"risk_level":"\([^"]*\)".*/\1/p' | head -1)
-
-        if [[ -n "$recommendation" && "$recommendation" != "" && "$risk_level" == "LOW" ]]; then
-            # Check if this recommendation should be skipped
-            local should_skip=false
-            for skip_rec in "${skip_recommendations[@]}"; do
-                if [[ "$recommendation" == "$skip_rec" ]]; then
-                    should_skip=true
-                    break
-                fi
-            done
-
-            if [[ "$should_skip" == false ]]; then
-                # Check if this recommendation already exists
-                local rec_exists=false
-                local rec_index=0
-
-                for i in "${!recommendations[@]}"; do
-                    if [[ "${recommendations[$i]}" == "$recommendation" ]]; then
-                        rec_exists=true
-                        rec_index=$i
-                        break
-                    fi
-                done
-
-                if [[ "$rec_exists" == true ]]; then
-                    # Increment count
-                    rec_counts[$rec_index]=$((${rec_counts[$rec_index]} + 1))
-                else
-                    # Add new recommendation
-                    recommendations+=("$recommendation")
-                    rec_counts+=(1)
-                fi
-            fi
-        fi
-    done
-
-    if [[ ${#recommendations[@]} -gt 0 ]]; then
-        cat << EOF
-## Additional Recommendations
-
-EOF
-
-        for i in "${!recommendations[@]}"; do
-            cat << EOF
-- **${recommendations[$i]}**
-
-EOF
-        done
-    fi
-}
-
-generate_markdown_footer() {
-    cat << EOF
----
-
-*This report was generated by macOS Workstation Auditor v$CONFIG_VERSION*
-
-*For detailed data analysis and aggregation, refer to the corresponding JSON export.*
-
-EOF
-}
-
-# Main report export functions called by the main script
-export_reports() {
-    log_message "INFO" "Starting report generation..." "REPORT"
-
-    # Collect findings once from all modules
-    collect_all_findings
-
-    # Generate both report formats using the same data
-    export_markdown_report
-    export_raw_data_json
-
-    log_message "SUCCESS" "All reports generated successfully" "REPORT"
-}
-
-# Embedded Module: get_disk_space_analysis.sh
+# [SYSTEM] get_disk_space_analysis - Disk space analysis for macOS
+# Order: 101
 #!/bin/bash
 
 # macOSWorkstationAuditor - Disk Space Analysis Module
@@ -1378,7 +459,8 @@ get_disk_findings() {
     printf '%s\n' "${DISK_FINDINGS[@]}"
 }
 
-# Embedded Module: get_memory_analysis.sh
+# [SYSTEM] get_memory_analysis - Memory utilization analysis for macOS
+# Order: 102
 #!/bin/bash
 
 # macOSWorkstationAuditor - Memory Analysis Module
@@ -1643,379 +725,306 @@ get_memory_findings() {
     printf '%s\n' "${MEMORY_FINDINGS[@]}"
 }
 
-# Embedded Module: get_network_analysis.sh
+# [SYSTEM] get_process_analysis - Process analysis for macOS
+# Order: 103
 #!/bin/bash
 
-# macOSWorkstationAuditor - Network Analysis Module
+# macOSWorkstationAuditor - Process Analysis Module
 # Version 1.0.0
 
 # Global variables for collecting data
-declare -a NETWORK_FINDINGS=()
+declare -a PROCESS_FINDINGS=()
 
-# Helper function to convert hex netmask to dotted decimal format
-hex_to_netmask() {
-    local hex_mask="$1"
-    # Remove 0x prefix
-    hex_mask=${hex_mask#0x}
-    
-    # Convert to decimal and then to dotted decimal notation
-    local decimal=$((16#$hex_mask))
-    local octet1=$(( (decimal >> 24) & 255 ))
-    local octet2=$(( (decimal >> 16) & 255 ))
-    local octet3=$(( (decimal >> 8) & 255 ))
-    local octet4=$(( decimal & 255 ))
-    
-    echo "${octet1}.${octet2}.${octet3}.${octet4}"
-}
-
-get_network_analysis_data() {
-    log_message "INFO" "Analyzing network configuration..." "NETWORK"
+get_process_analysis_data() {
+    log_message "INFO" "Analyzing running processes..." "PROCESSES"
     
     # Initialize findings array
-    NETWORK_FINDINGS=()
+    PROCESS_FINDINGS=()
     
-    # Check network interfaces
-    check_network_interfaces
+    # Analyze running processes
+    analyze_running_processes
+
+    # Analyze resource usage
+    analyze_cpu_usage
+    analyze_process_memory_usage
+
+    # Suspicious process detection removed - not appropriate for IT audit tool
     
-    # Check WiFi configuration
-    check_wifi_configuration
-    
-    # Check DNS settings
-    check_dns_configuration
-    
-    # Check active network connections
-    check_network_connections
-    
-    # Check network sharing services
-    check_network_sharing
-    
-    # Check VPN connections
-    check_vpn_connections
-    
-    log_message "SUCCESS" "Network analysis completed - ${#NETWORK_FINDINGS[@]} findings" "NETWORK"
+    log_message "SUCCESS" "Process analysis completed - ${#PROCESS_FINDINGS[@]} findings" "PROCESSES"
 }
 
-check_network_interfaces() {
-    log_message "INFO" "Checking network interfaces..." "NETWORK"
+analyze_running_processes() {
+    log_message "INFO" "Collecting running process information..." "PROCESSES"
     
-    # Get network interface information
-    local interfaces=$(networksetup -listallhardwareports 2>/dev/null)
-    local active_interfaces=0
-    local ethernet_found=false
-    local wifi_found=false
+    # Get process count
+    local total_processes=$(ps -ax | wc -l | tr -d ' ')
+    ((total_processes--))  # Remove header line
     
-    # Count active network interfaces and determine connection types
-    while IFS= read -r line; do
-        if echo "$line" | grep -q "Hardware Port:"; then
-            local port_name="$line"
-        elif echo "$line" | grep -q "Device:"; then
-            local device=$(echo "$line" | awk '{print $2}')
-            if ifconfig "$device" 2>/dev/null | grep -q "status: active"; then
-                ((active_interfaces++))
-                # Determine connection type based on port name and device type
-                if echo "$port_name" | grep -qi "ethernet\|usb.*ethernet\|thunderbolt.*ethernet"; then
-                    ethernet_found=true
-                elif echo "$port_name" | grep -qi "wi-fi\|airport\|wireless"; then
-                    wifi_found=true
+    # Get user processes vs system processes for consolidated report
+    local user_processes=$(ps -axo user,pid,command | grep -v "^root\|^_\|^daemon" | wc -l | tr -d ' ')
+    local system_processes=$((total_processes - user_processes))
+    
+    add_process_finding "System" "Process Activity" "$total_processes total" "User: $user_processes, System: $system_processes" "INFO" ""
+}
+
+analyze_cpu_usage() {
+    log_message "INFO" "Analyzing CPU usage by processes..." "PROCESSES"
+
+    # Get top 5 CPU processes with actual data format
+    local top_cpu_data=$(ps -axo pid,%cpu,command | sort -nr -k2 | head -6 | tail -5)
+
+    if [[ -n "$top_cpu_data" ]]; then
+        local cpu_total="0.0"
+        local cpu_details=""
+
+        while IFS= read -r line; do
+            if [[ -n "$line" ]]; then
+                local cpu_percent=$(echo "$line" | awk '{print $2}')
+                local process_name=$(echo "$line" | awk '{for(i=3;i<=NF;i++) printf "%s ", $i; print ""}' | sed 's/.*\///g' | cut -d' ' -f1 | head -c 20)
+
+                if [[ -n "$cpu_details" ]]; then
+                    cpu_details="$cpu_details,$process_name: ${cpu_percent}%"
                 else
-                    # For ambiguous cases, check the device name pattern and ifconfig output
-                    case "$device" in
-                        "en0")
-                            # en0 is typically Wi-Fi on modern Macs, but check ifconfig for media type
-                            if ifconfig "$device" 2>/dev/null | grep -q "media.*Ethernet"; then
-                                ethernet_found=true
-                            else
-                                wifi_found=true
-                            fi
+                    cpu_details="$process_name: ${cpu_percent}%"
+                fi
+
+                cpu_total=$(echo "$cpu_total + $cpu_percent" | bc 2>/dev/null || echo "$cpu_total")
+            fi
+        done <<< "$top_cpu_data"
+
+        add_process_finding "System" "Top 5 Process CPU Usage" "${cpu_total}% total" "Details: $cpu_details" "INFO" ""
+    fi
+}
+
+analyze_process_memory_usage() {
+    log_message "INFO" "Analyzing memory usage by processes..." "PROCESSES"
+
+    # Get top 5 memory processes using RSS (Resident Set Size)
+    local top_mem_data=$(ps -axo pid,rss,command | sort -nr -k2 | head -6 | tail -5)
+
+    if [[ -n "$top_mem_data" ]]; then
+        local mem_total_kb=0
+        local mem_details=""
+
+        while IFS= read -r line; do
+            if [[ -n "$line" ]]; then
+                local mem_kb=$(echo "$line" | awk '{print $2}')
+                local process_name=$(echo "$line" | awk '{for(i=3;i<=NF;i++) printf "%s ", $i; print ""}' | sed 's/.*\///g' | cut -d' ' -f1 | head -c 20)
+
+                # Convert KB to MB
+                local mem_mb=$((mem_kb / 1024))
+
+                # Calculate percentage of 16GB (total system memory)
+                local mem_percent=$(echo "scale=1; $mem_kb / 16384 / 1024 * 100" | bc 2>/dev/null || echo "0.0")
+
+                if [[ -n "$mem_details" ]]; then
+                    mem_details="$mem_details,$process_name: ${mem_percent}% (${mem_mb}MB)"
+                else
+                    mem_details="$process_name: ${mem_percent}% (${mem_mb}MB)"
+                fi
+
+                mem_total_kb=$((mem_total_kb + mem_kb))
+            fi
+        done <<< "$top_mem_data"
+
+        local mem_total_gb=$(echo "scale=2; $mem_total_kb / 1024 / 1024" | bc 2>/dev/null || echo "0.00")
+
+    fi
+}
+
+# Suspicious process detection function removed - not appropriate for enterprise IT audit tool
+# This is not an antimalware solution and should not pretend to detect threats
+
+check_high_cpu_processes() {
+    log_message "INFO" "Checking for high CPU usage processes..." "PROCESSES"
+    
+    # Get top CPU consuming processes
+    local high_cpu_processes=$(ps -axo pid,ppid,%cpu,command -r | awk '$3 > 50.0' | grep -v "%CPU")
+    local high_cpu_count=0
+    
+    if [[ -n "$high_cpu_processes" ]]; then
+        high_cpu_count=$(echo "$high_cpu_processes" | wc -l | tr -d ' ')
+    fi
+    
+    if [[ $high_cpu_count -gt 0 ]]; then
+        local risk_level="MEDIUM"
+        local recommendation="High CPU usage processes detected. Monitor system performance and investigate if necessary"
+        
+        if [[ $high_cpu_count -gt 3 ]]; then
+            risk_level="HIGH"
+            recommendation="Multiple high CPU processes detected. This may indicate system issues or malware"
+        fi
+        
+        # Extract process names and CPU percentages for details
+        local process_details=$(echo "$high_cpu_processes" | awk '{print $4 ": " $3 "%"}' | head -5 | tr '\n' ', ' | sed 's/, $//')
+        
+        add_process_finding "Performance" "High CPU Processes" "$high_cpu_count processes >50%" "High CPU usage: $process_details" "$risk_level" "$recommendation"
+    else
+        add_process_finding "Performance" "High CPU Processes" "None detected" "No processes using excessive CPU" "INFO" ""
+    fi
+}
+
+check_network_processes() {
+    log_message "INFO" "Checking for network-related processes..." "PROCESSES"
+    
+    # Check for common network/remote access processes with detailed pattern matching
+    local network_patterns=(
+        "sshd.*ssh"
+        "ssh "
+        "vnc"
+        "teamviewer"
+        "anydesk"
+        "screensharing"
+        "ARDAgent"
+        "Remote Desktop"
+        "AppleVNC"
+        "tightvnc"
+        "realvnc"
+        "logmein"
+        "gotomypc"
+    )
+    
+    local found_network_details=()
+    local risk_level="INFO"
+    local high_risk_count=0
+    local medium_risk_count=0
+    
+    # Get detailed process information
+    local all_processes=$(ps -axo pid,ppid,user,command)
+    
+    for pattern in "${network_patterns[@]}"; do
+        local matches=$(echo "$all_processes" | grep -i "$pattern" | grep -v "grep")
+        
+        if [[ -n "$matches" ]]; then
+            # Extract specific details for each match
+            while IFS= read -r process_line; do
+                if [[ -n "$process_line" ]]; then
+                    local pid=$(echo "$process_line" | awk '{print $1}')
+                    local user=$(echo "$process_line" | awk '{print $3}')
+                    local command=$(echo "$process_line" | awk '{for(i=4;i<=NF;i++) printf "%s ", $i; print ""}' | sed 's/ $//')
+                    
+                    # Extract just the executable name for cleaner display
+                    local exe_name=$(basename "$(echo "$command" | awk '{print $1}')")
+                    
+                    # Check for listening ports related to this process
+                    local listening_ports=""
+                    if command -v lsof >/dev/null 2>&1; then
+                        listening_ports=$(lsof -Pan -p "$pid" -i 2>/dev/null | grep LISTEN | awk '{print $9}' | cut -d: -f2 | tr '\n' ',' | sed 's/,$//')
+                    fi
+                    
+                    # Build detailed description
+                    local detail_desc="PID:$pid User:$user"
+                    if [[ -n "$listening_ports" ]]; then
+                        detail_desc="$detail_desc Ports:$listening_ports"
+                    fi
+                    
+                    # Determine risk level for this specific process
+                    case "$exe_name" in
+                        "sshd")
+                            detail_desc="SSH Server - $detail_desc"
+                            ((medium_risk_count++))
                             ;;
-                        "en"[1-9]|"en"[1-9][0-9])
-                            # en1+ are typically Ethernet adapters
-                            ethernet_found=true
+                        "ssh")
+                            detail_desc="SSH Client - $detail_desc"
+                            ;;
+                        "teamviewer"|"TeamViewer")
+                            detail_desc="TeamViewer - $detail_desc"
+                            ((high_risk_count++))
+                            ;;
+                        "anydesk"|"AnyDesk")
+                            detail_desc="AnyDesk - $detail_desc"
+                            ((high_risk_count++))
+                            ;;
+                        "vnc"*|"VNC"*|"AppleVNC"|"tightvnc"|"realvnc")
+                            detail_desc="VNC Server - $detail_desc"
+                            ((high_risk_count++))
+                            ;;
+                        "screensharing"|"ARDAgent")
+                            detail_desc="Apple Remote Desktop - $detail_desc"
+                            ((medium_risk_count++))
                             ;;
                         *)
-                            # For other devices, check ifconfig output for clues
-                            if ifconfig "$device" 2>/dev/null | grep -q "media.*Ethernet"; then
-                                ethernet_found=true
-                            elif ifconfig "$device" 2>/dev/null | grep -q "media.*autoselect"; then
-                                wifi_found=true
-                            fi
+                            detail_desc="$exe_name - $detail_desc"
                             ;;
                     esac
+                    
+                    found_network_details+=("$detail_desc")
                 fi
-            fi
-        fi
-    done <<< "$interfaces"
-    
-    # Report interface status
-    local interface_details=""
-    if [[ "$ethernet_found" == true && "$wifi_found" == true ]]; then
-        interface_details="Both Ethernet and Wi-Fi active"
-    elif [[ "$ethernet_found" == true ]]; then
-        interface_details="Ethernet connection active"
-    elif [[ "$wifi_found" == true ]]; then
-        interface_details="Wi-Fi connection active"
-    else
-        interface_details="Connection type unknown"
-    fi
-    
-    add_network_finding "Network" "Active Interfaces" "$active_interfaces" "$interface_details" "INFO" ""
-    
-    # Get IP configuration for primary interface
-    local primary_ip=$(route get default 2>/dev/null | grep interface | awk '{print $2}')
-    if [[ -n "$primary_ip" ]]; then
-        local ip_address=$(ifconfig "$primary_ip" 2>/dev/null | grep "inet " | awk '{print $2}' | head -1)
-        local subnet_mask_hex=$(ifconfig "$primary_ip" 2>/dev/null | grep "inet " | awk '{print $4}' | head -1)
-        
-        # Convert hex netmask to dotted decimal format
-        local subnet_mask="$subnet_mask_hex"
-        if [[ "$subnet_mask_hex" =~ ^0x[0-9a-fA-F]+$ ]]; then
-            subnet_mask=$(hex_to_netmask "$subnet_mask_hex")
-        fi
-        
-        if [[ -n "$ip_address" ]]; then
-            add_network_finding "Network" "Primary IP Address" "$ip_address" "Interface: $primary_ip, Mask: $subnet_mask" "INFO" ""
-        fi
-    fi
-}
-
-check_wifi_configuration() {
-    log_message "INFO" "Checking Wi-Fi configuration..." "NETWORK"
-    
-    # Check if Wi-Fi is enabled
-    local wifi_power=$(networksetup -getairportpower en0 2>/dev/null)
-    local wifi_status="Unknown"
-    
-    if echo "$wifi_power" | grep -q "On"; then
-        wifi_status="Enabled"
-    elif echo "$wifi_power" | grep -q "Off"; then
-        wifi_status="Disabled"
-    fi
-    
-    add_network_finding "Network" "Wi-Fi Status" "$wifi_status" "Airport power status" "INFO" ""
-    
-    # Check current Wi-Fi network
-    if [[ "$wifi_status" == "Enabled" ]]; then
-        local current_ssid=$(networksetup -getairportnetwork en0 2>/dev/null | cut -d: -f2 | sed 's/^ *//')
-        
-        if [[ -n "$current_ssid" && "$current_ssid" != "You are not associated with an AirPort network." ]]; then
-            # Check for open networks (security risk)
-            local security_info=$(security find-generic-password -D "AirPort network password" -a "$current_ssid" -g 2>&1)
-            local is_open=false
-            
-            if echo "$security_info" | grep -q "could not be found"; then
-                is_open=true
-            fi
-            
-            local risk_level="INFO"
-            local recommendation=""
-            
-            if [[ "$is_open" == true ]]; then
-                risk_level="HIGH"
-                recommendation="Connected to open Wi-Fi network. Use VPN or avoid transmitting sensitive data"
-            fi
-            
-            add_network_finding "Network" "Current Wi-Fi Network" "$current_ssid" "Currently connected SSID" "$risk_level" "$recommendation"
-        fi
-        
-        # Check for saved networks (potential security exposure)
-        local saved_networks=$(networksetup -listpreferredwirelessnetworks en0 2>/dev/null | grep -v "Preferred networks" | wc -l | tr -d ' ')
-        
-        local saved_risk="INFO"
-        local saved_recommendation=""
-        
-        if [[ $saved_networks -gt 20 ]]; then
-            saved_risk="LOW"
-            saved_recommendation="Large number of saved Wi-Fi networks may pose security risk. Consider removing unused networks"
-        fi
-        
-        add_network_finding "Network" "Saved Wi-Fi Networks" "$saved_networks networks" "Stored wireless network profiles" "$saved_risk" "$saved_recommendation"
-    fi
-}
-
-check_dns_configuration() {
-    log_message "INFO" "Checking DNS configuration..." "NETWORK"
-    
-    # Get DNS servers
-    local dns_servers=$(scutil --dns 2>/dev/null | grep nameserver | awk '{print $3}' | sort -u | head -5)
-    local dns_count=$(echo "$dns_servers" | wc -l | tr -d ' ')
-    
-    if [[ -n "$dns_servers" ]]; then
-        local dns_list=$(echo "$dns_servers" | tr '\n' ', ' | sed 's/, $//')
-        add_network_finding "Network" "DNS Servers" "$dns_count configured" "Servers: $dns_list" "INFO" ""
-        
-        # Check for common public DNS servers
-        local public_dns=false
-        while IFS= read -r dns; do
-            case "$dns" in
-                "8.8.8.8"|"8.8.4.4"|"1.1.1.1"|"1.0.0.1"|"208.67.222.222"|"208.67.220.220")
-                    public_dns=true
-                    break
-                    ;;
-            esac
-        done <<< "$dns_servers"
-        
-        if [[ "$public_dns" == true ]]; then
-            add_network_finding "Network" "Public DNS Detected" "Yes" "Using public DNS servers (Google, Cloudflare, etc.)" "LOW" "Consider using organization DNS servers for corporate networks"
-        fi
-    else
-        add_network_finding "Network" "DNS Configuration" "Not Found" "Could not determine DNS configuration" "LOW" "Verify DNS settings are properly configured"
-    fi
-}
-
-check_network_connections() {
-    log_message "INFO" "Checking active network connections..." "NETWORK"
-    
-    # Check for listening services
-    local listening_ports=$(netstat -an 2>/dev/null | grep LISTEN | wc -l | tr -d ' ')
-    add_network_finding "Network" "Listening Services" "$listening_ports ports" "Services accepting network connections" "INFO" ""
-    
-    # Check for high-risk ports
-    local risky_ports=("22" "23" "80" "443" "3389" "5900" "5901")
-    local found_risky=()
-    
-    for port in "${risky_ports[@]}"; do
-        if netstat -an 2>/dev/null | grep LISTEN | grep -q "\\.$port[ 	].*LISTEN"; then
-            case "$port" in
-                "22") found_risky+=("SSH ($port)") ;;
-                "23") found_risky+=("Telnet ($port)") ;;
-                "80") found_risky+=("HTTP ($port)") ;;
-                "443") found_risky+=("HTTPS ($port)") ;;
-                "3389") found_risky+=("RDP ($port)") ;;
-                "5900"|"5901") found_risky+=("VNC ($port)") ;;
-            esac
+            done <<< "$matches"
         fi
     done
     
-    if [[ ${#found_risky[@]} -gt 0 ]]; then
-        local risky_list=$(IFS=", "; echo "${found_risky[*]}")
-        local risk_level="MEDIUM"
-        local recommendation="Review listening services for security implications. Disable unnecessary services"
-        
-        add_network_finding "Security" "High-Risk Listening Ports" "${#found_risky[@]} detected" "Found: $risky_list" "$risk_level" "$recommendation"
-    fi
-    
-    # Add specific port details for transparency
-    add_specific_port_details
-    
-    # Check for established connections
-    local established_connections=$(netstat -an 2>/dev/null | grep ESTABLISHED | wc -l | tr -d ' ')
-    add_network_finding "Network" "Established Connections" "$established_connections" "Active outbound network connections" "INFO" ""
-}
-
-check_network_sharing() {
-    log_message "INFO" "Checking network sharing services..." "NETWORK"
-    
-    # Check common sharing services
-    local sharing_services=(
-        "Screen Sharing:ARDAgent"
-        "File Sharing:AppleFileServer"
-        "Remote Login:RemoteLogin"
-        "Remote Management:ARDAgent"
-        "Internet Sharing:InternetSharing"
-        "Bluetooth Sharing:BluetoothSharing"
-    )
-    
-    local enabled_sharing=()
-    local risky_sharing=()
-    
-    for service in "${sharing_services[@]}"; do
-        local service_name=$(echo "$service" | cut -d: -f1)
-        local service_process=$(echo "$service" | cut -d: -f2)
-        
-        # Check if service is running
-        if pgrep -f "$service_process" >/dev/null 2>&1; then
-            enabled_sharing+=("$service_name")
+    # Also check for processes with active network connections
+    if command -v lsof >/dev/null 2>&1; then
+        local network_connections=$(lsof -i -n | grep -E "ESTABLISHED|LISTEN" | awk '{print $2 ":" $1}' | sort -u | head -10)
+        if [[ -n "$network_connections" ]]; then
+            local connection_count=$(echo "$network_connections" | wc -l | tr -d ' ')
             
-            # Mark potentially risky services
-            case "$service_name" in
-                "Screen Sharing"|"Remote Login"|"Remote Management")
-                    risky_sharing+=("$service_name")
-                    ;;
-            esac
+            # Format the connections in a more readable way - just process names
+            local formatted_connections=""
+            local seen_processes=()
+            while IFS= read -r connection; do
+                if [[ -n "$connection" ]]; then
+                    local process=$(echo "$connection" | cut -d: -f2)
+                    # Clean up process name - remove path, truncate, and fix encoding
+                    process=$(basename "$process" | cut -c1-15)
+                    # Remove hex encoding and clean up names
+                    process=$(echo "$process" | sed 's/\\x20/ /g' | sed 's/\\x[0-9A-Fa-f][0-9A-Fa-f]//g' | tr -d '\\')
+                    # Remove extra whitespace and truncate
+                    process=$(echo "$process" | sed 's/[[:space:]]*$//' | sed 's/^[[:space:]]*//' | cut -c1-12)
+                    
+                    # Skip empty or very short process names
+                    if [[ -n "$process" && ${#process} -gt 2 ]]; then
+                        # Only add if not already seen
+                        if [[ ! " ${seen_processes[*]} " =~ " ${process} " ]]; then
+                            seen_processes+=("$process")
+                            if [[ -n "$formatted_connections" ]]; then
+                                formatted_connections="$formatted_connections, $process"
+                            else
+                                formatted_connections="$process"
+                            fi
+                        fi
+                    fi
+                fi
+            done <<< "$network_connections"
+            
+            add_process_finding "Network" "Active Network Connections" "${#seen_processes[@]} unique processes" "Processes with network activity: $formatted_connections" "INFO" ""
         fi
-    done
-    
-    if [[ ${#enabled_sharing[@]} -gt 0 ]]; then
-        local sharing_list=$(IFS=", "; echo "${enabled_sharing[*]}")
-        add_network_finding "Network" "Enabled Sharing Services" "${#enabled_sharing[@]} services" "Active: $sharing_list" "INFO" ""
-        
-        if [[ ${#risky_sharing[@]} -gt 0 ]]; then
-            local risky_list=$(IFS=", "; echo "${risky_sharing[*]}")
-            add_network_finding "Security" "Remote Access Services" "${#risky_sharing[@]} enabled" "Services: $risky_list" "MEDIUM" "Review remote access services for security and business justification"
-        fi
-    else
-        add_network_finding "Network" "Sharing Services" "None Active" "No network sharing services detected" "INFO" ""
     fi
-}
-
-check_vpn_connections() {
-    log_message "INFO" "Checking VPN connections..." "NETWORK"
     
-    # Check for VPN interfaces
-    local vpn_interfaces=$(ifconfig 2>/dev/null | grep -E "^(utun|ppp|ipsec)" | cut -d: -f1)
-    local vpn_count=0
-    local active_vpn=false
-    local active_vpn_interfaces=()
-    local all_vpn_interfaces=()
+    # Determine overall risk level and recommendation
+    local recommendation=""
+    if [[ $high_risk_count -gt 0 ]]; then
+        risk_level="HIGH"
+        recommendation="High-risk remote access software detected ($high_risk_count). Verify authorization and disable if not needed"
+    elif [[ $medium_risk_count -gt 0 ]]; then
+        risk_level="MEDIUM"
+        recommendation="Network services detected ($medium_risk_count). Ensure proper security configuration and authorization"
+    elif [[ ${#found_network_details[@]} -gt 0 ]]; then
+        risk_level="LOW"
+        recommendation="Network/remote processes active. Monitor for unauthorized access"
+    fi
     
-    while IFS= read -r interface; do
-        if [[ -n "$interface" ]]; then
-            ((vpn_count++))
-            all_vpn_interfaces+=("$interface")
-            # Check for IPv4 addresses (not IPv6 link-local) to determine if VPN is truly active
-            local ipv4_addr=$(ifconfig "$interface" 2>/dev/null | grep "inet " | grep -v "127\." | awk '{print $2}')
-            if [[ -n "$ipv4_addr" ]]; then
-                active_vpn=true
-                active_vpn_interfaces+=("$interface($ipv4_addr)")
-            fi
-        fi
-    done <<< "$vpn_interfaces"
-    
-    if [[ $vpn_count -gt 0 ]]; then
-        local vpn_status="Configured"
-        local all_interfaces_list=$(IFS=", "; echo "${all_vpn_interfaces[*]}")
-        local vpn_details="$vpn_count VPN interfaces: $all_interfaces_list"
-        
-        if [[ "$active_vpn" == true ]]; then
-            vpn_status="Active"
-            local active_list=$(IFS=", "; echo "${active_vpn_interfaces[*]}")
-            vpn_details="$vpn_details - Active: $active_list"
+    # Report findings
+    if [[ ${#found_network_details[@]} -gt 0 ]]; then
+        local details_summary=""
+        if [[ ${#found_network_details[@]} -le 3 ]]; then
+            # Show all details if few processes
+            details_summary=$(IFS="; "; echo "${found_network_details[*]}")
         else
-            vpn_details="$vpn_count system tunnel interfaces (no active VPN connections)"
+            # Show first 3 and count for many processes
+            local first_three=("${found_network_details[@]:0:3}")
+            details_summary="$(IFS="; "; echo "${first_three[*]}") and $((${#found_network_details[@]} - 3)) more"
         fi
         
-        add_network_finding "Network" "VPN Configuration" "$vpn_status" "$vpn_details" "INFO" ""
+        add_process_finding "Security" "Network/Remote Processes" "${#found_network_details[@]} active" "$details_summary" "$risk_level" "$recommendation"
     else
-        add_network_finding "Network" "VPN Configuration" "None Detected" "No VPN interfaces found" "INFO" ""
-    fi
-    
-    # Check for common VPN applications
-    local vpn_apps=(
-        "NordVPN.app"
-        "ExpressVPN.app"
-        "Tunnelblick.app"
-        "Viscosity.app"
-        "SurfShark.app"
-        "CyberGhost.app"
-        "Private Internet Access.app"
-    )
-    
-    local found_vpn_apps=()
-    for vpn_app in "${vpn_apps[@]}"; do
-        if [[ -d "/Applications/$vpn_app" ]]; then
-            local app_name=$(basename "$vpn_app" .app)
-            found_vpn_apps+=("$app_name")
-        fi
-    done
-    
-    if [[ ${#found_vpn_apps[@]} -gt 0 ]]; then
-        local vpn_app_list=$(IFS=", "; echo "${found_vpn_apps[*]}")
-        add_network_finding "Network" "VPN Applications" "${#found_vpn_apps[@]} installed" "Found: $vpn_app_list" "INFO" ""
+        add_process_finding "Security" "Network/Remote Processes" "None detected" "No remote access processes found" "INFO" ""
     fi
 }
 
-# Helper function to add network findings to the array
-add_network_finding() {
+# Helper function to add process findings to the array
+add_process_finding() {
     local category="$1"
     local item="$2"
     local value="$3"
@@ -2023,82 +1032,449 @@ add_network_finding() {
     local risk_level="$5"
     local recommendation="$6"
     
-    # Escape JSON strings to prevent control character issues
-    category=$(escape_json_string "$category")
-    item=$(escape_json_string "$item")
-    value=$(escape_json_string "$value")
-    details=$(escape_json_string "$details")
-    risk_level=$(escape_json_string "$risk_level")
-    recommendation=$(escape_json_string "$recommendation")
-    
-    NETWORK_FINDINGS+=("{\"category\":\"$category\",\"item\":\"$item\",\"value\":\"$value\",\"details\":\"$details\",\"risk_level\":\"$risk_level\",\"recommendation\":\"$recommendation\"}")
-}
-
-# Function to add specific port details like Windows report
-add_specific_port_details() {
-    # Get listening ports with process information
-    if command -v lsof >/dev/null 2>&1; then
-        # Get listening TCP ports with process info
-        local port_details=$(lsof -iTCP -sTCP:LISTEN -n 2>/dev/null | grep -v COMMAND)
-        
-        # Function to get port description (bash 3.2 compatible)
-        get_port_description() {
-            case "$1" in
-                "22") echo "SSH" ;;
-                "80") echo "HTTP" ;;
-                "88") echo "Kerberos" ;;
-                "443") echo "HTTPS" ;;
-                "445") echo "SMB/CIFS" ;;
-                "993") echo "IMAPS" ;;
-                "995") echo "POP3S" ;;
-                "5000") echo "UPnP/Flask Dev" ;;
-                "7000") echo "Development Server" ;;
-                "8080") echo "HTTP Alternative" ;;
-                "8989") echo "Sonarr/Web Service" ;;
-                "9993") echo "ZeroTier" ;;
-                *) echo "Unknown Service" ;;
-            esac
-        }
-        
-        # Track processed ports to avoid duplicates
-        local processed_ports=()
-        
-        # Process each listening port
-        while IFS= read -r line; do
-            if [[ -n "$line" ]]; then
-                local process=$(echo "$line" | awk '{print $1}')
-                local pid=$(echo "$line" | awk '{print $2}')
-                local port=$(echo "$line" | awk '{print $9}' | sed 's/.*://' | sed 's/(.*//')
-                
-                # Skip if already processed this port
-                local already_processed=false
-                for processed in "${processed_ports[@]}"; do
-                    if [[ "$processed" == "$port" ]]; then
-                        already_processed=true
-                        break
-                    fi
-                done
-                
-                if [[ "$already_processed" == false && -n "$port" && "$port" =~ ^[0-9]+$ ]]; then
-                    processed_ports+=("$port")
-                    
-                    # Get service description
-                    local service_desc=$(get_port_description "$port")
-                    
-                    # Add port finding
-                    add_network_finding "Network" "Port $port" "$service_desc" "Process: $process (PID: $pid)" "INFO" ""
-                fi
-            fi
-        done <<< "$port_details"
-    fi
+    PROCESS_FINDINGS+=("{\"category\":\"$category\",\"item\":\"$item\",\"value\":\"$value\",\"details\":\"$details\",\"risk_level\":\"$risk_level\",\"recommendation\":\"$recommendation\"}")
 }
 
 # Function to get findings for report generation
-get_network_findings() {
-    printf '%s\n' "${NETWORK_FINDINGS[@]}"
+get_process_findings() {
+    printf '%s\n' "${PROCESS_FINDINGS[@]}"
 }
 
-# Embedded Module: get_patch_status.sh
+# [INVENTORY] get_software_inventory - Software inventory for macOS
+# Order: 110
+#!/bin/bash
+
+# macOSWorkstationAuditor - Software Inventory Module
+# Version 1.0.0
+
+# Global variables for collecting data
+declare -a SOFTWARE_FINDINGS=()
+
+get_software_inventory_data() {
+    log_message "INFO" "Collecting macOS software inventory..." "SOFTWARE"
+    
+    # Initialize findings array
+    SOFTWARE_FINDINGS=()
+    
+    # Collect applications from /Applications
+    collect_applications_inventory
+    
+    # Check for critical software versions
+    check_critical_software
+    
+    # Check for development tools
+    check_development_tools
+    
+    # Check for remote access software
+    check_remote_access_software
+    
+    # Check for browser plugins and extensions
+    check_browser_security
+    
+    # Check for package managers
+    check_package_managers
+    
+    log_message "SUCCESS" "Software inventory completed - ${#SOFTWARE_FINDINGS[@]} findings" "SOFTWARE"
+}
+
+collect_applications_inventory() {
+    log_message "INFO" "Scanning /Applications directory..." "SOFTWARE"
+    
+    local app_count=0
+    local system_app_count=0
+    local user_app_count=0
+    
+    # Count applications in /Applications
+    if [[ -d "/Applications" ]]; then
+        app_count=$(find /Applications -maxdepth 1 -name "*.app" -type d | wc -l | tr -d ' ')
+    fi
+    
+    # Count system applications in /System/Applications (macOS Catalina+)
+    if [[ -d "/System/Applications" ]]; then
+        system_app_count=$(find /System/Applications -maxdepth 1 -name "*.app" -type d | wc -l | tr -d ' ')
+    fi
+    
+    # Count user applications in ~/Applications
+    if [[ -d "$HOME/Applications" ]]; then
+        user_app_count=$(find "$HOME/Applications" -maxdepth 1 -name "*.app" -type d | wc -l | tr -d ' ')
+    fi
+    
+    local total_apps=$((app_count + system_app_count + user_app_count))
+    
+    add_software_finding "Software" "Total Installed Applications" "$total_apps" "Applications: $app_count, System: $system_app_count, User: $user_app_count" "INFO" ""
+    
+    # Check for suspicious application counts
+    if [[ $app_count -gt 200 ]]; then
+        add_software_finding "Software" "Application Count" "High" "Large number of applications may indicate software sprawl" "LOW" "Review installed applications and remove unused software"
+    fi
+}
+
+check_critical_software() {
+    log_message "INFO" "Checking critical software versions..." "SOFTWARE"
+    
+    # Check critical applications (bash 3.2 compatible) - prioritize by security importance
+    
+    # Browsers (security critical)
+    check_single_application "Google Chrome" "/Applications/Google Chrome.app"
+    check_single_application "Mozilla Firefox" "/Applications/Firefox.app" 
+    check_single_application "Microsoft Edge" "/Applications/Microsoft Edge.app"
+    # Safari is reported separately as default macOS browser
+    
+    # Communication & Remote Access (business critical)
+    check_single_application "Zoom" "/Applications/zoom.us.app"
+    check_single_application "Slack" "/Applications/Slack.app"
+    check_single_application "Microsoft Teams" "/Applications/Microsoft Teams.app"
+    check_single_application "Discord" "/Applications/Discord.app"
+    check_single_application "TeamViewer" "/Applications/TeamViewer.app"
+    
+    # Cloud Storage & Sync (data security)
+    check_single_application "Dropbox" "/Applications/Dropbox.app"
+    check_single_application "Google Drive" "/Applications/Google Drive.app"
+    check_single_application "OneDrive" "/Applications/OneDrive.app"
+    check_single_application "iCloud Drive" "/System/Applications/iCloud Drive.app"
+    
+    # Development Tools (if present)
+    check_single_application "Docker Desktop" "/Applications/Docker.app"
+    check_single_application "Visual Studio Code" "/Applications/Visual Studio Code.app"
+    check_single_application "JetBrains Toolbox" "/Applications/JetBrains Toolbox.app"
+    
+    # Security & VPN
+    check_single_application "1Password" "/Applications/1Password 7 - Password Manager.app"
+    check_single_application "Malwarebytes" "/Applications/Malwarebytes for Mac.app"
+    check_single_application "Little Snitch" "/Applications/Little Snitch.app"
+    
+    # Special handling for Office suite and Adobe (high priority due to update frequency)
+    check_microsoft_office
+    check_adobe_acrobat
+}
+
+check_single_application() {
+    local app_name="$1"
+    local app_path="$2"
+    
+    if [[ -d "$app_path" ]]; then
+        local version="Unknown"
+        local install_date="Unknown"
+        local risk_level="INFO"
+        local recommendation=""
+        
+        # Try to get version from Info.plist
+        local info_plist="$app_path/Contents/Info.plist"
+        if [[ -f "$info_plist" ]]; then
+            version=$(defaults read "$info_plist" CFBundleShortVersionString 2>/dev/null || echo "Unknown")
+            
+            # Get installation/modification date
+            local mod_time=$(stat -f "%Sm" -t "%Y-%m-%d" "$app_path" 2>/dev/null || echo "Unknown")
+            install_date="$mod_time"
+            
+            # Check age of application (based on modification time)
+            if [[ "$mod_time" != "Unknown" ]]; then
+                local mod_timestamp=$(date -j -f "%Y-%m-%d" "$mod_time" "+%s" 2>/dev/null || echo "0")
+                local current_timestamp=$(date +%s)
+                local age_days=$(( (current_timestamp - mod_timestamp) / 86400 ))
+                
+                if [[ $age_days -gt 365 ]]; then
+                    risk_level="MEDIUM"
+                    recommendation="Application is over 1 year old. Check for updates"
+                elif [[ $age_days -gt 180 ]]; then
+                    risk_level="LOW"
+                    recommendation="Consider checking for application updates"
+                fi
+            fi
+        fi
+        
+        add_software_finding "Software" "$app_name" "$version" "Install Date: $install_date" "$risk_level" "$recommendation"
+    fi
+}
+
+check_microsoft_office() {
+    # Check for various Office applications
+    local office_apps=(
+        "Microsoft Word.app"
+        "Microsoft Excel.app"
+        "Microsoft PowerPoint.app"
+        "Microsoft Outlook.app"
+        "Microsoft OneNote.app"
+    )
+    
+    local found_office=false
+    local office_version="Unknown"
+    
+    for office_app in "${office_apps[@]}"; do
+        local app_path="/Applications/$office_app"
+        if [[ -d "$app_path" ]]; then
+            found_office=true
+            office_version=$(defaults read "$app_path/Contents/Info.plist" CFBundleShortVersionString 2>/dev/null || echo "Unknown")
+            break
+        fi
+    done
+    
+    if [[ "$found_office" == true ]]; then
+        add_software_finding "Software" "Microsoft Office" "$office_version" "Office suite detected" "INFO" ""
+    fi
+}
+
+check_adobe_acrobat() {
+    # Check for various Adobe Acrobat versions
+    local adobe_paths=(
+        "/Applications/Adobe Acrobat DC/Adobe Acrobat.app"
+        "/Applications/Adobe Acrobat Reader DC.app"
+        "/Applications/Adobe Reader.app"
+    )
+    
+    for adobe_path in "${adobe_paths[@]}"; do
+        if [[ -d "$adobe_path" ]]; then
+            local version=$(defaults read "$adobe_path/Contents/Info.plist" CFBundleShortVersionString 2>/dev/null || echo "Unknown")
+            local app_name=$(basename "$adobe_path" .app)
+            add_software_finding "Software" "Adobe Acrobat/Reader" "$version" "Found: $app_name" "INFO" ""
+            return
+        fi
+    done
+}
+
+check_development_tools() {
+    log_message "INFO" "Checking for development tools..." "SOFTWARE"
+    
+    # Check for Xcode
+    if [[ -d "/Applications/Xcode.app" ]]; then
+        local xcode_version=$(defaults read "/Applications/Xcode.app/Contents/Info.plist" CFBundleShortVersionString 2>/dev/null || echo "Unknown")
+        add_software_finding "Software" "Xcode" "$xcode_version" "Apple development environment" "INFO" ""
+    fi
+    
+    # Check for command line tools
+    if xcode-select -p >/dev/null 2>&1; then
+        local cli_path=$(xcode-select -p 2>/dev/null || echo "Unknown")
+        add_software_finding "Software" "Command Line Tools" "Installed" "Path: $cli_path" "INFO" ""
+    fi
+    
+    # Check for common development tools
+    local dev_apps=(
+        "Visual Studio Code.app"
+        "Sublime Text.app"
+        "Atom.app"
+        "IntelliJ IDEA.app"
+        "PyCharm.app"
+        "Docker.app"
+        "Terminal.app"
+        "iTerm.app"
+    )
+    
+    local dev_count=0
+    local found_dev_apps=()
+    
+    for dev_app in "${dev_apps[@]}"; do
+        if [[ -d "/Applications/$dev_app" ]]; then
+            ((dev_count++))
+            local app_name=$(basename "$dev_app" .app)
+            found_dev_apps+=("$app_name")
+        fi
+    done
+    
+    if [[ $dev_count -gt 0 ]]; then
+        local dev_list=$(IFS=", "; echo "${found_dev_apps[*]}")
+        add_software_finding "Software" "Development Tools" "$dev_count applications" "Found: $dev_list" "INFO" ""
+    fi
+}
+
+check_remote_access_software() {
+    log_message "INFO" "Checking for remote access software..." "SOFTWARE"
+    
+    # Common remote access applications
+    local remote_apps=(
+        "TeamViewer.app"
+        "AnyDesk.app"
+        "Chrome Remote Desktop Host.app"
+        "LogMeIn.app"
+        "GoToMyPC.app"
+        "Remote Desktop Connection.app"
+        "VNC Viewer.app"
+        "Screens.app"
+        "Jump Desktop.app"
+        "ScreenConnect Client.app"
+        "ConnectWise Control.app"
+        "Splashtop Business.app"
+        "Splashtop Streamer.app"
+        "Apple Remote Desktop.app"
+        "RealVNC.app"
+        "TightVNC.app"
+        "UltraVNC.app"
+        "Parallels Access.app"
+        "Remotix.app"
+        "Microsoft Remote Desktop.app"
+    )
+    
+    local found_remote=()
+    
+    # Check standard Applications folder
+    for remote_app in "${remote_apps[@]}"; do
+        if [[ -d "/Applications/$remote_app" ]]; then
+            local app_name=$(basename "$remote_app" .app)
+            found_remote+=("$app_name")
+        fi
+    done
+    
+    # Check for remote access software by bundle identifier (more reliable)
+    local bundle_id_patterns=(
+        "com.screenconnect.client:ScreenConnect"
+        "com.connectwise.control:ConnectWise Control"  
+        "com.teamviewer.TeamViewer:TeamViewer"
+        "com.anydesk.AnyDesk:AnyDesk"
+        "com.google.chromeremotedesktop:Chrome Remote Desktop"
+        "com.logmein.LogMeIn:LogMeIn"
+        "com.gotomypc.GoToMyPC:GoToMyPC"
+        "com.realvnc.VNCViewer:RealVNC"
+        "com.osxvnc.VNCViewer:VNC Viewer"
+        "com.parallels.ParallelsAccess:Parallels Access"
+        "com.apple.RemoteDesktop:Apple Remote Desktop"
+        "com.edovia.SplashDesktop:Splashtop Desktop"
+        "com.splashtop.business:Splashtop Business"
+        "com.splashtop.streamer:Splashtop Streamer"
+    )
+    
+    # Check all apps for remote access bundle identifiers
+    for app_path in /Applications/*.app /Applications/*/*.app; do
+        if [[ -d "$app_path" && -f "$app_path/Contents/Info.plist" ]]; then
+            local bundle_id=$(defaults read "$app_path/Contents/Info.plist" CFBundleIdentifier 2>/dev/null)
+            if [[ -n "$bundle_id" ]]; then
+                for pattern in "${bundle_id_patterns[@]}"; do
+                    local id_pattern="${pattern%:*}"
+                    local display_name="${pattern#*:}"
+                    if [[ "$bundle_id" == "$id_pattern" ]]; then
+                        found_remote+=("$display_name")
+                        break
+                    fi
+                done
+            fi
+        fi
+    done
+    
+    # Also check for ScreenConnect/ConnectWise in alternate locations and patterns  
+    local screenconnect_patterns=(
+        "/Applications/ScreenConnect Client*.app"
+        "/Applications/*ScreenConnect*.app"
+        "/Applications/ConnectWise*.app"
+        "/Applications/*ConnectWise*.app"
+        "/opt/screenconnect"
+        "/usr/local/bin/screenconnect"
+    )
+    
+    for pattern in "${screenconnect_patterns[@]}"; do
+        if ls $pattern >/dev/null 2>&1; then
+            # Extract a clean name for ScreenConnect variations
+            if [[ "$pattern" == *"ScreenConnect"* ]]; then
+                found_remote+=("ScreenConnect")
+            elif [[ "$pattern" == *"ConnectWise"* ]]; then
+                found_remote+=("ConnectWise Control")
+            fi
+            break  # Only add once even if multiple matches
+        fi
+    done
+    
+    # Remove duplicates
+    local unique_remote=()
+    for app in "${found_remote[@]}"; do
+        if [[ ! " ${unique_remote[*]} " =~ " ${app} " ]]; then
+            unique_remote+=("$app")
+        fi
+    done
+    found_remote=("${unique_remote[@]}")
+    
+    if [[ ${#found_remote[@]} -gt 0 ]]; then
+        local remote_list=$(IFS=", "; echo "${found_remote[*]}")
+        local risk_level="MEDIUM"
+        local recommendation="Review remote access software for security and business justification"
+        
+        add_software_finding "Security" "Remote Access Software" "${#found_remote[@]} applications" "Found: $remote_list" "$risk_level" "$recommendation"
+    else
+        add_software_finding "Security" "Remote Access Software" "None Detected" "No remote access applications found" "INFO" ""
+    fi
+}
+
+check_browser_security() {
+    log_message "INFO" "Checking browser security..." "SOFTWARE"
+    
+    # Check Safari version
+    if [[ -d "/Applications/Safari.app" ]]; then
+        local safari_version=$(defaults read "/Applications/Safari.app/Contents/Info.plist" CFBundleShortVersionString 2>/dev/null || echo "Unknown")
+        add_software_finding "Software" "Safari Browser" "$safari_version" "Default macOS browser" "INFO" ""
+    fi
+    
+    # Check for browser security extensions/plugins (simplified check)
+    local safari_extensions_dir="$HOME/Library/Safari/Extensions"
+    if [[ -d "$safari_extensions_dir" ]]; then
+        local ext_count=$(find "$safari_extensions_dir" -name "*.safariextz" 2>/dev/null | wc -l | tr -d ' ')
+        if [[ $ext_count -gt 0 ]]; then
+            add_software_finding "Software" "Safari Extensions" "$ext_count extensions" "Browser extensions installed" "LOW" "Review browser extensions for security and necessity"
+        fi
+    fi
+    
+    # Check for Flash Player (security risk if present)
+    local flash_paths=(
+        "/Library/Internet Plug-Ins/Flash Player.plugin"
+        "/System/Library/Frameworks/Adobe AIR.framework"
+    )
+    
+    local flash_found=false
+    for flash_path in "${flash_paths[@]}"; do
+        if [[ -e "$flash_path" ]]; then
+            flash_found=true
+            break
+        fi
+    done
+    
+    if [[ "$flash_found" == true ]]; then
+        add_software_finding "Security" "Adobe Flash Player" "Detected" "Legacy Flash Player installation found" "HIGH" "Remove Adobe Flash Player as it's no longer supported and poses security risks"
+    fi
+}
+
+check_package_managers() {
+    log_message "INFO" "Checking for package managers..." "SOFTWARE"
+    
+    # Check for Homebrew
+    if command -v brew >/dev/null 2>&1; then
+        local brew_version=$(brew --version 2>/dev/null | head -1 | awk '{print $2}' || echo "Unknown")
+        local brew_packages=$(brew list 2>/dev/null | wc -l | tr -d ' ')
+        add_software_finding "Software" "Homebrew" "$brew_version" "$brew_packages packages installed" "INFO" ""
+    fi
+    
+    # Check for MacPorts
+    if command -v port >/dev/null 2>&1; then
+        local port_version=$(port version 2>/dev/null | awk '{print $2}' || echo "Unknown")
+        add_software_finding "Software" "MacPorts" "$port_version" "Package manager detected" "INFO" ""
+    fi
+    
+    # Check for pip (Python package manager)
+    if command -v pip >/dev/null 2>&1; then
+        local pip_version=$(pip --version 2>/dev/null | awk '{print $2}' || echo "Unknown")
+        add_software_finding "Software" "Python pip" "$pip_version" "Python package manager" "INFO" ""
+    fi
+    
+    # Check for npm (Node.js package manager)
+    if command -v npm >/dev/null 2>&1; then
+        local npm_version=$(npm --version 2>/dev/null || echo "Unknown")
+        add_software_finding "Software" "Node.js npm" "$npm_version" "Node.js package manager" "INFO" ""
+    fi
+}
+
+# Helper function to add software findings to the array
+add_software_finding() {
+    local category="$1"
+    local item="$2"
+    local value="$3"
+    local details="$4"
+    local risk_level="$5"
+    local recommendation="$6"
+    
+    SOFTWARE_FINDINGS+=("{\"category\":\"$category\",\"item\":\"$item\",\"value\":\"$value\",\"details\":\"$details\",\"risk_level\":\"$risk_level\",\"recommendation\":\"$recommendation\"}")
+}
+
+# Function to get findings for report generation
+get_software_findings() {
+    printf '%s\n' "${SOFTWARE_FINDINGS[@]}"
+}
+
+# [SECURITY] get_patch_status - macOS update status analysis
+# Order: 120
 #!/bin/bash
 
 # macOSWorkstationAuditor - Patch Status Module
@@ -2512,321 +1888,8 @@ get_patch_findings() {
     printf '%s\n' "${PATCH_FINDINGS[@]}"
 }
 
-# Embedded Module: get_process_analysis.sh
-#!/bin/bash
-
-# macOSWorkstationAuditor - Process Analysis Module
-# Version 1.0.0
-
-# Global variables for collecting data
-declare -a PROCESS_FINDINGS=()
-
-get_process_analysis_data() {
-    log_message "INFO" "Analyzing running processes..." "PROCESSES"
-    
-    # Initialize findings array
-    PROCESS_FINDINGS=()
-    
-    # Analyze running processes
-    analyze_running_processes
-
-    # Analyze resource usage
-    analyze_cpu_usage
-    analyze_process_memory_usage
-
-    # Suspicious process detection removed - not appropriate for IT audit tool
-    
-    log_message "SUCCESS" "Process analysis completed - ${#PROCESS_FINDINGS[@]} findings" "PROCESSES"
-}
-
-analyze_running_processes() {
-    log_message "INFO" "Collecting running process information..." "PROCESSES"
-    
-    # Get process count
-    local total_processes=$(ps -ax | wc -l | tr -d ' ')
-    ((total_processes--))  # Remove header line
-    
-    # Get user processes vs system processes for consolidated report
-    local user_processes=$(ps -axo user,pid,command | grep -v "^root\|^_\|^daemon" | wc -l | tr -d ' ')
-    local system_processes=$((total_processes - user_processes))
-    
-    add_process_finding "System" "Process Activity" "$total_processes total" "User: $user_processes, System: $system_processes" "INFO" ""
-}
-
-analyze_cpu_usage() {
-    log_message "INFO" "Analyzing CPU usage by processes..." "PROCESSES"
-
-    # Get top 5 CPU processes with actual data format
-    local top_cpu_data=$(ps -axo pid,%cpu,command | sort -nr -k2 | head -6 | tail -5)
-
-    if [[ -n "$top_cpu_data" ]]; then
-        local cpu_total="0.0"
-        local cpu_details=""
-
-        while IFS= read -r line; do
-            if [[ -n "$line" ]]; then
-                local cpu_percent=$(echo "$line" | awk '{print $2}')
-                local process_name=$(echo "$line" | awk '{for(i=3;i<=NF;i++) printf "%s ", $i; print ""}' | sed 's/.*\///g' | cut -d' ' -f1 | head -c 20)
-
-                if [[ -n "$cpu_details" ]]; then
-                    cpu_details="$cpu_details,$process_name: ${cpu_percent}%"
-                else
-                    cpu_details="$process_name: ${cpu_percent}%"
-                fi
-
-                cpu_total=$(echo "$cpu_total + $cpu_percent" | bc 2>/dev/null || echo "$cpu_total")
-            fi
-        done <<< "$top_cpu_data"
-
-        add_process_finding "System" "Top 5 Process CPU Usage" "${cpu_total}% total" "Details: $cpu_details" "INFO" ""
-    fi
-}
-
-analyze_process_memory_usage() {
-    log_message "INFO" "Analyzing memory usage by processes..." "PROCESSES"
-
-    # Get top 5 memory processes using RSS (Resident Set Size)
-    local top_mem_data=$(ps -axo pid,rss,command | sort -nr -k2 | head -6 | tail -5)
-
-    if [[ -n "$top_mem_data" ]]; then
-        local mem_total_kb=0
-        local mem_details=""
-
-        while IFS= read -r line; do
-            if [[ -n "$line" ]]; then
-                local mem_kb=$(echo "$line" | awk '{print $2}')
-                local process_name=$(echo "$line" | awk '{for(i=3;i<=NF;i++) printf "%s ", $i; print ""}' | sed 's/.*\///g' | cut -d' ' -f1 | head -c 20)
-
-                # Convert KB to MB
-                local mem_mb=$((mem_kb / 1024))
-
-                # Calculate percentage of 16GB (total system memory)
-                local mem_percent=$(echo "scale=1; $mem_kb / 16384 / 1024 * 100" | bc 2>/dev/null || echo "0.0")
-
-                if [[ -n "$mem_details" ]]; then
-                    mem_details="$mem_details,$process_name: ${mem_percent}% (${mem_mb}MB)"
-                else
-                    mem_details="$process_name: ${mem_percent}% (${mem_mb}MB)"
-                fi
-
-                mem_total_kb=$((mem_total_kb + mem_kb))
-            fi
-        done <<< "$top_mem_data"
-
-        local mem_total_gb=$(echo "scale=2; $mem_total_kb / 1024 / 1024" | bc 2>/dev/null || echo "0.00")
-
-    fi
-}
-
-# Suspicious process detection function removed - not appropriate for enterprise IT audit tool
-# This is not an antimalware solution and should not pretend to detect threats
-
-check_high_cpu_processes() {
-    log_message "INFO" "Checking for high CPU usage processes..." "PROCESSES"
-    
-    # Get top CPU consuming processes
-    local high_cpu_processes=$(ps -axo pid,ppid,%cpu,command -r | awk '$3 > 50.0' | grep -v "%CPU")
-    local high_cpu_count=0
-    
-    if [[ -n "$high_cpu_processes" ]]; then
-        high_cpu_count=$(echo "$high_cpu_processes" | wc -l | tr -d ' ')
-    fi
-    
-    if [[ $high_cpu_count -gt 0 ]]; then
-        local risk_level="MEDIUM"
-        local recommendation="High CPU usage processes detected. Monitor system performance and investigate if necessary"
-        
-        if [[ $high_cpu_count -gt 3 ]]; then
-            risk_level="HIGH"
-            recommendation="Multiple high CPU processes detected. This may indicate system issues or malware"
-        fi
-        
-        # Extract process names and CPU percentages for details
-        local process_details=$(echo "$high_cpu_processes" | awk '{print $4 ": " $3 "%"}' | head -5 | tr '\n' ', ' | sed 's/, $//')
-        
-        add_process_finding "Performance" "High CPU Processes" "$high_cpu_count processes >50%" "High CPU usage: $process_details" "$risk_level" "$recommendation"
-    else
-        add_process_finding "Performance" "High CPU Processes" "None detected" "No processes using excessive CPU" "INFO" ""
-    fi
-}
-
-check_network_processes() {
-    log_message "INFO" "Checking for network-related processes..." "PROCESSES"
-    
-    # Check for common network/remote access processes with detailed pattern matching
-    local network_patterns=(
-        "sshd.*ssh"
-        "ssh "
-        "vnc"
-        "teamviewer"
-        "anydesk"
-        "screensharing"
-        "ARDAgent"
-        "Remote Desktop"
-        "AppleVNC"
-        "tightvnc"
-        "realvnc"
-        "logmein"
-        "gotomypc"
-    )
-    
-    local found_network_details=()
-    local risk_level="INFO"
-    local high_risk_count=0
-    local medium_risk_count=0
-    
-    # Get detailed process information
-    local all_processes=$(ps -axo pid,ppid,user,command)
-    
-    for pattern in "${network_patterns[@]}"; do
-        local matches=$(echo "$all_processes" | grep -i "$pattern" | grep -v "grep")
-        
-        if [[ -n "$matches" ]]; then
-            # Extract specific details for each match
-            while IFS= read -r process_line; do
-                if [[ -n "$process_line" ]]; then
-                    local pid=$(echo "$process_line" | awk '{print $1}')
-                    local user=$(echo "$process_line" | awk '{print $3}')
-                    local command=$(echo "$process_line" | awk '{for(i=4;i<=NF;i++) printf "%s ", $i; print ""}' | sed 's/ $//')
-                    
-                    # Extract just the executable name for cleaner display
-                    local exe_name=$(basename "$(echo "$command" | awk '{print $1}')")
-                    
-                    # Check for listening ports related to this process
-                    local listening_ports=""
-                    if command -v lsof >/dev/null 2>&1; then
-                        listening_ports=$(lsof -Pan -p "$pid" -i 2>/dev/null | grep LISTEN | awk '{print $9}' | cut -d: -f2 | tr '\n' ',' | sed 's/,$//')
-                    fi
-                    
-                    # Build detailed description
-                    local detail_desc="PID:$pid User:$user"
-                    if [[ -n "$listening_ports" ]]; then
-                        detail_desc="$detail_desc Ports:$listening_ports"
-                    fi
-                    
-                    # Determine risk level for this specific process
-                    case "$exe_name" in
-                        "sshd")
-                            detail_desc="SSH Server - $detail_desc"
-                            ((medium_risk_count++))
-                            ;;
-                        "ssh")
-                            detail_desc="SSH Client - $detail_desc"
-                            ;;
-                        "teamviewer"|"TeamViewer")
-                            detail_desc="TeamViewer - $detail_desc"
-                            ((high_risk_count++))
-                            ;;
-                        "anydesk"|"AnyDesk")
-                            detail_desc="AnyDesk - $detail_desc"
-                            ((high_risk_count++))
-                            ;;
-                        "vnc"*|"VNC"*|"AppleVNC"|"tightvnc"|"realvnc")
-                            detail_desc="VNC Server - $detail_desc"
-                            ((high_risk_count++))
-                            ;;
-                        "screensharing"|"ARDAgent")
-                            detail_desc="Apple Remote Desktop - $detail_desc"
-                            ((medium_risk_count++))
-                            ;;
-                        *)
-                            detail_desc="$exe_name - $detail_desc"
-                            ;;
-                    esac
-                    
-                    found_network_details+=("$detail_desc")
-                fi
-            done <<< "$matches"
-        fi
-    done
-    
-    # Also check for processes with active network connections
-    if command -v lsof >/dev/null 2>&1; then
-        local network_connections=$(lsof -i -n | grep -E "ESTABLISHED|LISTEN" | awk '{print $2 ":" $1}' | sort -u | head -10)
-        if [[ -n "$network_connections" ]]; then
-            local connection_count=$(echo "$network_connections" | wc -l | tr -d ' ')
-            
-            # Format the connections in a more readable way - just process names
-            local formatted_connections=""
-            local seen_processes=()
-            while IFS= read -r connection; do
-                if [[ -n "$connection" ]]; then
-                    local process=$(echo "$connection" | cut -d: -f2)
-                    # Clean up process name - remove path, truncate, and fix encoding
-                    process=$(basename "$process" | cut -c1-15)
-                    # Remove hex encoding and clean up names
-                    process=$(echo "$process" | sed 's/\\x20/ /g' | sed 's/\\x[0-9A-Fa-f][0-9A-Fa-f]//g' | tr -d '\\')
-                    # Remove extra whitespace and truncate
-                    process=$(echo "$process" | sed 's/[[:space:]]*$//' | sed 's/^[[:space:]]*//' | cut -c1-12)
-                    
-                    # Skip empty or very short process names
-                    if [[ -n "$process" && ${#process} -gt 2 ]]; then
-                        # Only add if not already seen
-                        if [[ ! " ${seen_processes[*]} " =~ " ${process} " ]]; then
-                            seen_processes+=("$process")
-                            if [[ -n "$formatted_connections" ]]; then
-                                formatted_connections="$formatted_connections, $process"
-                            else
-                                formatted_connections="$process"
-                            fi
-                        fi
-                    fi
-                fi
-            done <<< "$network_connections"
-            
-            add_process_finding "Network" "Active Network Connections" "${#seen_processes[@]} unique processes" "Processes with network activity: $formatted_connections" "INFO" ""
-        fi
-    fi
-    
-    # Determine overall risk level and recommendation
-    local recommendation=""
-    if [[ $high_risk_count -gt 0 ]]; then
-        risk_level="HIGH"
-        recommendation="High-risk remote access software detected ($high_risk_count). Verify authorization and disable if not needed"
-    elif [[ $medium_risk_count -gt 0 ]]; then
-        risk_level="MEDIUM"
-        recommendation="Network services detected ($medium_risk_count). Ensure proper security configuration and authorization"
-    elif [[ ${#found_network_details[@]} -gt 0 ]]; then
-        risk_level="LOW"
-        recommendation="Network/remote processes active. Monitor for unauthorized access"
-    fi
-    
-    # Report findings
-    if [[ ${#found_network_details[@]} -gt 0 ]]; then
-        local details_summary=""
-        if [[ ${#found_network_details[@]} -le 3 ]]; then
-            # Show all details if few processes
-            details_summary=$(IFS="; "; echo "${found_network_details[*]}")
-        else
-            # Show first 3 and count for many processes
-            local first_three=("${found_network_details[@]:0:3}")
-            details_summary="$(IFS="; "; echo "${first_three[*]}") and $((${#found_network_details[@]} - 3)) more"
-        fi
-        
-        add_process_finding "Security" "Network/Remote Processes" "${#found_network_details[@]} active" "$details_summary" "$risk_level" "$recommendation"
-    else
-        add_process_finding "Security" "Network/Remote Processes" "None detected" "No remote access processes found" "INFO" ""
-    fi
-}
-
-# Helper function to add process findings to the array
-add_process_finding() {
-    local category="$1"
-    local item="$2"
-    local value="$3"
-    local details="$4"
-    local risk_level="$5"
-    local recommendation="$6"
-    
-    PROCESS_FINDINGS+=("{\"category\":\"$category\",\"item\":\"$item\",\"value\":\"$value\",\"details\":\"$details\",\"risk_level\":\"$risk_level\",\"recommendation\":\"$recommendation\"}")
-}
-
-# Function to get findings for report generation
-get_process_findings() {
-    printf '%s\n' "${PROCESS_FINDINGS[@]}"
-}
-
-# Embedded Module: get_security_settings.sh
+# [SECURITY] get_security_settings - macOS security configuration analysis
+# Order: 121
 #!/bin/bash
 
 # macOSWorkstationAuditor - Security Settings Analysis Module
@@ -4289,678 +3352,8 @@ get_security_findings() {
 }
 
 
-# Embedded Module: get_software_inventory.sh
-#!/bin/bash
-
-# macOSWorkstationAuditor - Software Inventory Module
-# Version 1.0.0
-
-# Global variables for collecting data
-declare -a SOFTWARE_FINDINGS=()
-
-get_software_inventory_data() {
-    log_message "INFO" "Collecting macOS software inventory..." "SOFTWARE"
-    
-    # Initialize findings array
-    SOFTWARE_FINDINGS=()
-    
-    # Collect applications from /Applications
-    collect_applications_inventory
-    
-    # Check for critical software versions
-    check_critical_software
-    
-    # Check for development tools
-    check_development_tools
-    
-    # Check for remote access software
-    check_remote_access_software
-    
-    # Check for browser plugins and extensions
-    check_browser_security
-    
-    # Check for package managers
-    check_package_managers
-    
-    log_message "SUCCESS" "Software inventory completed - ${#SOFTWARE_FINDINGS[@]} findings" "SOFTWARE"
-}
-
-collect_applications_inventory() {
-    log_message "INFO" "Scanning /Applications directory..." "SOFTWARE"
-    
-    local app_count=0
-    local system_app_count=0
-    local user_app_count=0
-    
-    # Count applications in /Applications
-    if [[ -d "/Applications" ]]; then
-        app_count=$(find /Applications -maxdepth 1 -name "*.app" -type d | wc -l | tr -d ' ')
-    fi
-    
-    # Count system applications in /System/Applications (macOS Catalina+)
-    if [[ -d "/System/Applications" ]]; then
-        system_app_count=$(find /System/Applications -maxdepth 1 -name "*.app" -type d | wc -l | tr -d ' ')
-    fi
-    
-    # Count user applications in ~/Applications
-    if [[ -d "$HOME/Applications" ]]; then
-        user_app_count=$(find "$HOME/Applications" -maxdepth 1 -name "*.app" -type d | wc -l | tr -d ' ')
-    fi
-    
-    local total_apps=$((app_count + system_app_count + user_app_count))
-    
-    add_software_finding "Software" "Total Installed Applications" "$total_apps" "Applications: $app_count, System: $system_app_count, User: $user_app_count" "INFO" ""
-    
-    # Check for suspicious application counts
-    if [[ $app_count -gt 200 ]]; then
-        add_software_finding "Software" "Application Count" "High" "Large number of applications may indicate software sprawl" "LOW" "Review installed applications and remove unused software"
-    fi
-}
-
-check_critical_software() {
-    log_message "INFO" "Checking critical software versions..." "SOFTWARE"
-    
-    # Check critical applications (bash 3.2 compatible) - prioritize by security importance
-    
-    # Browsers (security critical)
-    check_single_application "Google Chrome" "/Applications/Google Chrome.app"
-    check_single_application "Mozilla Firefox" "/Applications/Firefox.app" 
-    check_single_application "Microsoft Edge" "/Applications/Microsoft Edge.app"
-    # Safari is reported separately as default macOS browser
-    
-    # Communication & Remote Access (business critical)
-    check_single_application "Zoom" "/Applications/zoom.us.app"
-    check_single_application "Slack" "/Applications/Slack.app"
-    check_single_application "Microsoft Teams" "/Applications/Microsoft Teams.app"
-    check_single_application "Discord" "/Applications/Discord.app"
-    check_single_application "TeamViewer" "/Applications/TeamViewer.app"
-    
-    # Cloud Storage & Sync (data security)
-    check_single_application "Dropbox" "/Applications/Dropbox.app"
-    check_single_application "Google Drive" "/Applications/Google Drive.app"
-    check_single_application "OneDrive" "/Applications/OneDrive.app"
-    check_single_application "iCloud Drive" "/System/Applications/iCloud Drive.app"
-    
-    # Development Tools (if present)
-    check_single_application "Docker Desktop" "/Applications/Docker.app"
-    check_single_application "Visual Studio Code" "/Applications/Visual Studio Code.app"
-    check_single_application "JetBrains Toolbox" "/Applications/JetBrains Toolbox.app"
-    
-    # Security & VPN
-    check_single_application "1Password" "/Applications/1Password 7 - Password Manager.app"
-    check_single_application "Malwarebytes" "/Applications/Malwarebytes for Mac.app"
-    check_single_application "Little Snitch" "/Applications/Little Snitch.app"
-    
-    # Special handling for Office suite and Adobe (high priority due to update frequency)
-    check_microsoft_office
-    check_adobe_acrobat
-}
-
-check_single_application() {
-    local app_name="$1"
-    local app_path="$2"
-    
-    if [[ -d "$app_path" ]]; then
-        local version="Unknown"
-        local install_date="Unknown"
-        local risk_level="INFO"
-        local recommendation=""
-        
-        # Try to get version from Info.plist
-        local info_plist="$app_path/Contents/Info.plist"
-        if [[ -f "$info_plist" ]]; then
-            version=$(defaults read "$info_plist" CFBundleShortVersionString 2>/dev/null || echo "Unknown")
-            
-            # Get installation/modification date
-            local mod_time=$(stat -f "%Sm" -t "%Y-%m-%d" "$app_path" 2>/dev/null || echo "Unknown")
-            install_date="$mod_time"
-            
-            # Check age of application (based on modification time)
-            if [[ "$mod_time" != "Unknown" ]]; then
-                local mod_timestamp=$(date -j -f "%Y-%m-%d" "$mod_time" "+%s" 2>/dev/null || echo "0")
-                local current_timestamp=$(date +%s)
-                local age_days=$(( (current_timestamp - mod_timestamp) / 86400 ))
-                
-                if [[ $age_days -gt 365 ]]; then
-                    risk_level="MEDIUM"
-                    recommendation="Application is over 1 year old. Check for updates"
-                elif [[ $age_days -gt 180 ]]; then
-                    risk_level="LOW"
-                    recommendation="Consider checking for application updates"
-                fi
-            fi
-        fi
-        
-        add_software_finding "Software" "$app_name" "$version" "Install Date: $install_date" "$risk_level" "$recommendation"
-    fi
-}
-
-check_microsoft_office() {
-    # Check for various Office applications
-    local office_apps=(
-        "Microsoft Word.app"
-        "Microsoft Excel.app"
-        "Microsoft PowerPoint.app"
-        "Microsoft Outlook.app"
-        "Microsoft OneNote.app"
-    )
-    
-    local found_office=false
-    local office_version="Unknown"
-    
-    for office_app in "${office_apps[@]}"; do
-        local app_path="/Applications/$office_app"
-        if [[ -d "$app_path" ]]; then
-            found_office=true
-            office_version=$(defaults read "$app_path/Contents/Info.plist" CFBundleShortVersionString 2>/dev/null || echo "Unknown")
-            break
-        fi
-    done
-    
-    if [[ "$found_office" == true ]]; then
-        add_software_finding "Software" "Microsoft Office" "$office_version" "Office suite detected" "INFO" ""
-    fi
-}
-
-check_adobe_acrobat() {
-    # Check for various Adobe Acrobat versions
-    local adobe_paths=(
-        "/Applications/Adobe Acrobat DC/Adobe Acrobat.app"
-        "/Applications/Adobe Acrobat Reader DC.app"
-        "/Applications/Adobe Reader.app"
-    )
-    
-    for adobe_path in "${adobe_paths[@]}"; do
-        if [[ -d "$adobe_path" ]]; then
-            local version=$(defaults read "$adobe_path/Contents/Info.plist" CFBundleShortVersionString 2>/dev/null || echo "Unknown")
-            local app_name=$(basename "$adobe_path" .app)
-            add_software_finding "Software" "Adobe Acrobat/Reader" "$version" "Found: $app_name" "INFO" ""
-            return
-        fi
-    done
-}
-
-check_development_tools() {
-    log_message "INFO" "Checking for development tools..." "SOFTWARE"
-    
-    # Check for Xcode
-    if [[ -d "/Applications/Xcode.app" ]]; then
-        local xcode_version=$(defaults read "/Applications/Xcode.app/Contents/Info.plist" CFBundleShortVersionString 2>/dev/null || echo "Unknown")
-        add_software_finding "Software" "Xcode" "$xcode_version" "Apple development environment" "INFO" ""
-    fi
-    
-    # Check for command line tools
-    if xcode-select -p >/dev/null 2>&1; then
-        local cli_path=$(xcode-select -p 2>/dev/null || echo "Unknown")
-        add_software_finding "Software" "Command Line Tools" "Installed" "Path: $cli_path" "INFO" ""
-    fi
-    
-    # Check for common development tools
-    local dev_apps=(
-        "Visual Studio Code.app"
-        "Sublime Text.app"
-        "Atom.app"
-        "IntelliJ IDEA.app"
-        "PyCharm.app"
-        "Docker.app"
-        "Terminal.app"
-        "iTerm.app"
-    )
-    
-    local dev_count=0
-    local found_dev_apps=()
-    
-    for dev_app in "${dev_apps[@]}"; do
-        if [[ -d "/Applications/$dev_app" ]]; then
-            ((dev_count++))
-            local app_name=$(basename "$dev_app" .app)
-            found_dev_apps+=("$app_name")
-        fi
-    done
-    
-    if [[ $dev_count -gt 0 ]]; then
-        local dev_list=$(IFS=", "; echo "${found_dev_apps[*]}")
-        add_software_finding "Software" "Development Tools" "$dev_count applications" "Found: $dev_list" "INFO" ""
-    fi
-}
-
-check_remote_access_software() {
-    log_message "INFO" "Checking for remote access software..." "SOFTWARE"
-    
-    # Common remote access applications
-    local remote_apps=(
-        "TeamViewer.app"
-        "AnyDesk.app"
-        "Chrome Remote Desktop Host.app"
-        "LogMeIn.app"
-        "GoToMyPC.app"
-        "Remote Desktop Connection.app"
-        "VNC Viewer.app"
-        "Screens.app"
-        "Jump Desktop.app"
-        "ScreenConnect Client.app"
-        "ConnectWise Control.app"
-        "Splashtop Business.app"
-        "Splashtop Streamer.app"
-        "Apple Remote Desktop.app"
-        "RealVNC.app"
-        "TightVNC.app"
-        "UltraVNC.app"
-        "Parallels Access.app"
-        "Remotix.app"
-        "Microsoft Remote Desktop.app"
-    )
-    
-    local found_remote=()
-    
-    # Check standard Applications folder
-    for remote_app in "${remote_apps[@]}"; do
-        if [[ -d "/Applications/$remote_app" ]]; then
-            local app_name=$(basename "$remote_app" .app)
-            found_remote+=("$app_name")
-        fi
-    done
-    
-    # Check for remote access software by bundle identifier (more reliable)
-    local bundle_id_patterns=(
-        "com.screenconnect.client:ScreenConnect"
-        "com.connectwise.control:ConnectWise Control"  
-        "com.teamviewer.TeamViewer:TeamViewer"
-        "com.anydesk.AnyDesk:AnyDesk"
-        "com.google.chromeremotedesktop:Chrome Remote Desktop"
-        "com.logmein.LogMeIn:LogMeIn"
-        "com.gotomypc.GoToMyPC:GoToMyPC"
-        "com.realvnc.VNCViewer:RealVNC"
-        "com.osxvnc.VNCViewer:VNC Viewer"
-        "com.parallels.ParallelsAccess:Parallels Access"
-        "com.apple.RemoteDesktop:Apple Remote Desktop"
-        "com.edovia.SplashDesktop:Splashtop Desktop"
-        "com.splashtop.business:Splashtop Business"
-        "com.splashtop.streamer:Splashtop Streamer"
-    )
-    
-    # Check all apps for remote access bundle identifiers
-    for app_path in /Applications/*.app /Applications/*/*.app; do
-        if [[ -d "$app_path" && -f "$app_path/Contents/Info.plist" ]]; then
-            local bundle_id=$(defaults read "$app_path/Contents/Info.plist" CFBundleIdentifier 2>/dev/null)
-            if [[ -n "$bundle_id" ]]; then
-                for pattern in "${bundle_id_patterns[@]}"; do
-                    local id_pattern="${pattern%:*}"
-                    local display_name="${pattern#*:}"
-                    if [[ "$bundle_id" == "$id_pattern" ]]; then
-                        found_remote+=("$display_name")
-                        break
-                    fi
-                done
-            fi
-        fi
-    done
-    
-    # Also check for ScreenConnect/ConnectWise in alternate locations and patterns  
-    local screenconnect_patterns=(
-        "/Applications/ScreenConnect Client*.app"
-        "/Applications/*ScreenConnect*.app"
-        "/Applications/ConnectWise*.app"
-        "/Applications/*ConnectWise*.app"
-        "/opt/screenconnect"
-        "/usr/local/bin/screenconnect"
-    )
-    
-    for pattern in "${screenconnect_patterns[@]}"; do
-        if ls $pattern >/dev/null 2>&1; then
-            # Extract a clean name for ScreenConnect variations
-            if [[ "$pattern" == *"ScreenConnect"* ]]; then
-                found_remote+=("ScreenConnect")
-            elif [[ "$pattern" == *"ConnectWise"* ]]; then
-                found_remote+=("ConnectWise Control")
-            fi
-            break  # Only add once even if multiple matches
-        fi
-    done
-    
-    # Remove duplicates
-    local unique_remote=()
-    for app in "${found_remote[@]}"; do
-        if [[ ! " ${unique_remote[*]} " =~ " ${app} " ]]; then
-            unique_remote+=("$app")
-        fi
-    done
-    found_remote=("${unique_remote[@]}")
-    
-    if [[ ${#found_remote[@]} -gt 0 ]]; then
-        local remote_list=$(IFS=", "; echo "${found_remote[*]}")
-        local risk_level="MEDIUM"
-        local recommendation="Review remote access software for security and business justification"
-        
-        add_software_finding "Security" "Remote Access Software" "${#found_remote[@]} applications" "Found: $remote_list" "$risk_level" "$recommendation"
-    else
-        add_software_finding "Security" "Remote Access Software" "None Detected" "No remote access applications found" "INFO" ""
-    fi
-}
-
-check_browser_security() {
-    log_message "INFO" "Checking browser security..." "SOFTWARE"
-    
-    # Check Safari version
-    if [[ -d "/Applications/Safari.app" ]]; then
-        local safari_version=$(defaults read "/Applications/Safari.app/Contents/Info.plist" CFBundleShortVersionString 2>/dev/null || echo "Unknown")
-        add_software_finding "Software" "Safari Browser" "$safari_version" "Default macOS browser" "INFO" ""
-    fi
-    
-    # Check for browser security extensions/plugins (simplified check)
-    local safari_extensions_dir="$HOME/Library/Safari/Extensions"
-    if [[ -d "$safari_extensions_dir" ]]; then
-        local ext_count=$(find "$safari_extensions_dir" -name "*.safariextz" 2>/dev/null | wc -l | tr -d ' ')
-        if [[ $ext_count -gt 0 ]]; then
-            add_software_finding "Software" "Safari Extensions" "$ext_count extensions" "Browser extensions installed" "LOW" "Review browser extensions for security and necessity"
-        fi
-    fi
-    
-    # Check for Flash Player (security risk if present)
-    local flash_paths=(
-        "/Library/Internet Plug-Ins/Flash Player.plugin"
-        "/System/Library/Frameworks/Adobe AIR.framework"
-    )
-    
-    local flash_found=false
-    for flash_path in "${flash_paths[@]}"; do
-        if [[ -e "$flash_path" ]]; then
-            flash_found=true
-            break
-        fi
-    done
-    
-    if [[ "$flash_found" == true ]]; then
-        add_software_finding "Security" "Adobe Flash Player" "Detected" "Legacy Flash Player installation found" "HIGH" "Remove Adobe Flash Player as it's no longer supported and poses security risks"
-    fi
-}
-
-check_package_managers() {
-    log_message "INFO" "Checking for package managers..." "SOFTWARE"
-    
-    # Check for Homebrew
-    if command -v brew >/dev/null 2>&1; then
-        local brew_version=$(brew --version 2>/dev/null | head -1 | awk '{print $2}' || echo "Unknown")
-        local brew_packages=$(brew list 2>/dev/null | wc -l | tr -d ' ')
-        add_software_finding "Software" "Homebrew" "$brew_version" "$brew_packages packages installed" "INFO" ""
-    fi
-    
-    # Check for MacPorts
-    if command -v port >/dev/null 2>&1; then
-        local port_version=$(port version 2>/dev/null | awk '{print $2}' || echo "Unknown")
-        add_software_finding "Software" "MacPorts" "$port_version" "Package manager detected" "INFO" ""
-    fi
-    
-    # Check for pip (Python package manager)
-    if command -v pip >/dev/null 2>&1; then
-        local pip_version=$(pip --version 2>/dev/null | awk '{print $2}' || echo "Unknown")
-        add_software_finding "Software" "Python pip" "$pip_version" "Python package manager" "INFO" ""
-    fi
-    
-    # Check for npm (Node.js package manager)
-    if command -v npm >/dev/null 2>&1; then
-        local npm_version=$(npm --version 2>/dev/null || echo "Unknown")
-        add_software_finding "Software" "Node.js npm" "$npm_version" "Node.js package manager" "INFO" ""
-    fi
-}
-
-# Helper function to add software findings to the array
-add_software_finding() {
-    local category="$1"
-    local item="$2"
-    local value="$3"
-    local details="$4"
-    local risk_level="$5"
-    local recommendation="$6"
-    
-    SOFTWARE_FINDINGS+=("{\"category\":\"$category\",\"item\":\"$item\",\"value\":\"$value\",\"details\":\"$details\",\"risk_level\":\"$risk_level\",\"recommendation\":\"$recommendation\"}")
-}
-
-# Function to get findings for report generation
-get_software_findings() {
-    printf '%s\n' "${SOFTWARE_FINDINGS[@]}"
-}
-
-# Embedded Module: get_system_information.sh
-#!/bin/bash
-
-# macOSWorkstationAuditor - System Information Module
-# Version 1.0.0
-
-# Global variables for collecting data
-declare -a SYSTEM_FINDINGS=()
-
-get_system_information_data() {
-    log_message "INFO" "Collecting macOS system information..." "SYSTEM"
-    
-    # Initialize findings array
-    SYSTEM_FINDINGS=()
-    
-    # Get basic system information
-    local os_version=$(sw_vers -productVersion)
-    local os_build=$(sw_vers -buildVersion)
-    local os_name=$(sw_vers -productName)
-    local hardware_model=$(sysctl -n hw.model)
-    local cpu_brand=$(sysctl -n machdep.cpu.brand_string 2>/dev/null || echo "Unknown CPU")
-    local memory_gb=$(echo "scale=2; $(sysctl -n hw.memsize) / 1073741824" | bc)
-    local cpu_cores=$(sysctl -n hw.ncpu)
-    
-    # Get serial number
-    local serial_number=$(system_profiler SPHardwareDataType | grep "Serial Number" | awk '{print $4}' 2>/dev/null || echo "Unknown")
-    if [[ -z "$serial_number" || "$serial_number" == "" ]]; then
-        serial_number=$(ioreg -c IOPlatformExpertDevice -d 2 | awk -F\" '/IOPlatformSerialNumber/{print $(NF-1)}' 2>/dev/null || echo "Unknown")
-    fi
-    
-    # Get computer name and hostname
-    local computer_name=$(scutil --get ComputerName 2>/dev/null || hostname -s)
-    local hostname=$(hostname)
-    
-    # Get system uptime
-    local uptime_seconds=$(sysctl -n kern.boottime | awk '{print $4}' | tr -d ',')
-    local current_time=$(date +%s)
-    local uptime_days=$(( (current_time - uptime_seconds) / 86400 ))
-    
-    # Get system architecture
-    local arch=$(uname -m)
-    
-    
-    
-    # Operating System Information (basic info only - patch module handles version analysis)
-    local os_details="Build: $os_build, Architecture: $arch"
-    add_finding "System" "Operating System" "$os_name $os_version" "$os_details" "INFO" ""
-    
-    # Hardware Information
-    add_finding "System" "Hardware" "$hardware_model" "CPU: $cpu_brand, Cores: $cpu_cores, RAM: ${memory_gb}GB, Serial: $serial_number" "INFO" ""
-    
-    # Computer Identity
-    add_finding "System" "Computer Name" "$computer_name" "Hostname: $hostname" "INFO" ""
-    
-    # System Uptime
-    local uptime_risk="INFO"
-    local uptime_recommendation=""
-    if [[ $uptime_days -gt 30 ]]; then
-        uptime_risk="LOW"
-        uptime_recommendation="Consider restarting to apply pending updates and clear system resources"
-    fi
-    add_finding "System" "System Uptime" "$uptime_days days" "Last reboot: $(date -r $uptime_seconds)" "$uptime_risk" "$uptime_recommendation"
-    
-    # Check printer configuration
-    check_printer_inventory
-    
-    # Check for open risky ports
-    check_open_ports
-    
-    log_message "SUCCESS" "System information collection completed - ${#SYSTEM_FINDINGS[@]} findings" "SYSTEM"
-}
-
-check_printer_inventory() {
-    log_message "INFO" "Checking printer configuration..." "SYSTEM"
-    
-    # Get installed printers using lpstat
-    local printer_count=0
-    local printer_names=""
-    local risk_level="INFO"
-    local recommendation=""
-    
-    if command -v lpstat >/dev/null 2>&1; then
-        # Get list of configured printers
-        local printers=$(lpstat -p 2>/dev/null | grep "printer" | awk '{print $2}')
-        if [[ -n "$printers" ]]; then
-            printer_count=$(echo "$printers" | wc -l | tr -d ' ')
-            printer_names=$(echo "$printers" | tr '\n' ', ' | sed 's/, $//')
-        fi
-        
-        # Check for network printers (potential security concern)
-        local network_printers=0
-        if [[ -n "$printers" ]]; then
-            while IFS= read -r printer; do
-                if [[ -n "$printer" ]]; then
-                    local printer_uri=$(lpstat -v "$printer" 2>/dev/null | awk '{print $4}')
-                    if echo "$printer_uri" | grep -qE "^(ipp|ipps|http|https|socket|lpd)://"; then
-                        ((network_printers++))
-                    fi
-                fi
-            done <<< "$printers"
-        fi
-        
-        # Assess security risk
-        if [[ $network_printers -gt 0 ]]; then
-            risk_level="LOW"
-            recommendation="$network_printers network printers detected. Ensure they are on trusted networks and use secure protocols"
-        fi
-        
-        # Check for default printer
-        local default_printer=$(lpstat -d 2>/dev/null | awk '{print $4}')
-        local printer_details="$printer_count total"
-        if [[ -n "$default_printer" ]]; then
-            printer_details="$printer_details, default: $default_printer"
-        fi
-        if [[ $network_printers -gt 0 ]]; then
-            printer_details="$printer_details, $network_printers network"
-        fi
-        
-        add_finding "Hardware" "Printers" "$printer_count printers" "$printer_details" "$risk_level" "$recommendation"
-        
-        # List individual printers if any exist
-        if [[ $printer_count -gt 0 && $printer_count -le 5 ]]; then
-            add_finding "Hardware" "Printer List" "$printer_names" "Configured printer names" "INFO" ""
-        fi
-        
-    else
-        add_finding "Hardware" "Printers" "Unable to check" "lpstat command not available" "LOW" ""
-    fi
-}
-
-check_open_ports() {
-    log_message "INFO" "Checking for open risky ports..." "SYSTEM"
-    
-    # Define risky ports to check for
-    local risky_ports=(
-        "21:FTP"
-        "22:SSH" 
-        "23:Telnet"
-        "53:DNS"
-        "80:HTTP"
-        "135:RPC"
-        "139:NetBIOS"
-        "443:HTTPS"
-        "445:SMB"
-        "993:IMAPS"
-        "995:POP3S"
-        "1433:SQL Server"
-        "1521:Oracle"
-        "3306:MySQL"
-        "3389:RDP"
-        "5432:PostgreSQL"
-        "5900:VNC"
-        "6379:Redis"
-        "8080:HTTP Alt"
-        "27017:MongoDB"
-    )
-    
-    local open_ports=()
-    local high_risk_ports=()
-    local medium_risk_ports=()
-    
-    # Check if netstat is available
-    if command -v netstat >/dev/null 2>&1; then
-        # Get listening ports
-        local listening_ports=$(netstat -an | grep LISTEN)
-        
-        # Check each risky port
-        for port_info in "${risky_ports[@]}"; do
-            local port=$(echo "$port_info" | cut -d: -f1)
-            local service=$(echo "$port_info" | cut -d: -f2)
-            
-            if echo "$listening_ports" | grep -q ":$port "; then
-                open_ports+=("$port ($service)")
-                
-                # Categorize by risk level
-                case "$port" in
-                    "21"|"23"|"135"|"139"|"445"|"1433"|"3389"|"5900")
-                        high_risk_ports+=("$port ($service)")
-                        ;;
-                    "22"|"53"|"80"|"443"|"993"|"995"|"3306"|"5432"|"6379"|"8080"|"27017")
-                        medium_risk_ports+=("$port ($service)")
-                        ;;
-                esac
-            fi
-        done
-        
-        # Assess overall risk
-        local risk_level="INFO"
-        local recommendation=""
-        local port_summary="${#open_ports[@]} risky ports open"
-        
-        if [[ ${#high_risk_ports[@]} -gt 0 ]]; then
-            risk_level="HIGH"
-            local high_risk_list=$(IFS=", "; echo "${high_risk_ports[*]}")
-            recommendation="High-risk ports open: $high_risk_list. Close unnecessary services and use firewalls"
-            port_summary="$port_summary (${#high_risk_ports[@]} high-risk)"
-            
-        elif [[ ${#medium_risk_ports[@]} -gt 0 ]]; then
-            risk_level="MEDIUM"
-            local medium_risk_list=$(IFS=", "; echo "${medium_risk_ports[*]}")
-            recommendation="Medium-risk ports open: $medium_risk_list. Ensure proper security configuration"
-            port_summary="$port_summary (${#medium_risk_ports[@]} medium-risk)"
-            
-        elif [[ ${#open_ports[@]} -gt 0 ]]; then
-            risk_level="LOW"
-            recommendation="Monitor open ports and ensure they are necessary for system operation"
-        fi
-        
-        local port_details=""
-        if [[ ${#open_ports[@]} -gt 0 ]]; then
-            port_details="Open: $(IFS=", "; echo "${open_ports[*]}")"
-        else
-            port_details="No risky ports detected listening"
-        fi
-        
-        # Network analysis module handles detailed port analysis
-        
-    else
-        add_finding "Network" "Open Ports" "Unable to check" "netstat command not available" "LOW" "Install network utilities to check open ports"
-    fi
-}
-
-# Helper function to add findings to the array
-add_finding() {
-    local category="$1"
-    local item="$2"
-    local value="$3"
-    local details="$4"
-    local risk_level="$5"
-    local recommendation="$6"
-    
-    SYSTEM_FINDINGS+=("{\"category\":\"$category\",\"item\":\"$item\",\"value\":\"$value\",\"details\":\"$details\",\"risk_level\":\"$risk_level\",\"recommendation\":\"$recommendation\"}")
-}
-
-# Function to get findings for report generation
-get_system_findings() {
-    printf '%s\n' "${SYSTEM_FINDINGS[@]}"
-}
-
-# Embedded Module: get_user_account_analysis.sh
+# [SECURITY] get_user_account_analysis - User account analysis for macOS
+# Order: 122
 #!/bin/bash
 
 # macOSWorkstationAuditor - User Account Analysis Module
@@ -5451,7 +3844,1628 @@ get_user_findings() {
     printf '%s\n' "${USER_FINDINGS[@]}"
 }
 
-# Main Script Logic (Modified for Web Deployment)
+# [NETWORK] get_network_analysis - Network configuration analysis for macOS
+# Order: 130
+#!/bin/bash
+
+# macOSWorkstationAuditor - Network Analysis Module
+# Version 1.0.0
+
+# Global variables for collecting data
+declare -a NETWORK_FINDINGS=()
+
+# Helper function to convert hex netmask to dotted decimal format
+hex_to_netmask() {
+    local hex_mask="$1"
+    # Remove 0x prefix
+    hex_mask=${hex_mask#0x}
+    
+    # Convert to decimal and then to dotted decimal notation
+    local decimal=$((16#$hex_mask))
+    local octet1=$(( (decimal >> 24) & 255 ))
+    local octet2=$(( (decimal >> 16) & 255 ))
+    local octet3=$(( (decimal >> 8) & 255 ))
+    local octet4=$(( decimal & 255 ))
+    
+    echo "${octet1}.${octet2}.${octet3}.${octet4}"
+}
+
+get_network_analysis_data() {
+    log_message "INFO" "Analyzing network configuration..." "NETWORK"
+    
+    # Initialize findings array
+    NETWORK_FINDINGS=()
+    
+    # Check network interfaces
+    check_network_interfaces
+    
+    # Check WiFi configuration
+    check_wifi_configuration
+    
+    # Check DNS settings
+    check_dns_configuration
+    
+    # Check active network connections
+    check_network_connections
+    
+    # Check network sharing services
+    check_network_sharing
+    
+    # Check VPN connections
+    check_vpn_connections
+    
+    log_message "SUCCESS" "Network analysis completed - ${#NETWORK_FINDINGS[@]} findings" "NETWORK"
+}
+
+check_network_interfaces() {
+    log_message "INFO" "Checking network interfaces..." "NETWORK"
+    
+    # Get network interface information
+    local interfaces=$(networksetup -listallhardwareports 2>/dev/null)
+    local active_interfaces=0
+    local ethernet_found=false
+    local wifi_found=false
+    
+    # Count active network interfaces and determine connection types
+    while IFS= read -r line; do
+        if echo "$line" | grep -q "Hardware Port:"; then
+            local port_name="$line"
+        elif echo "$line" | grep -q "Device:"; then
+            local device=$(echo "$line" | awk '{print $2}')
+            if ifconfig "$device" 2>/dev/null | grep -q "status: active"; then
+                ((active_interfaces++))
+                # Determine connection type based on port name and device type
+                if echo "$port_name" | grep -qi "ethernet\|usb.*ethernet\|thunderbolt.*ethernet"; then
+                    ethernet_found=true
+                elif echo "$port_name" | grep -qi "wi-fi\|airport\|wireless"; then
+                    wifi_found=true
+                else
+                    # For ambiguous cases, check the device name pattern and ifconfig output
+                    case "$device" in
+                        "en0")
+                            # en0 is typically Wi-Fi on modern Macs, but check ifconfig for media type
+                            if ifconfig "$device" 2>/dev/null | grep -q "media.*Ethernet"; then
+                                ethernet_found=true
+                            else
+                                wifi_found=true
+                            fi
+                            ;;
+                        "en"[1-9]|"en"[1-9][0-9])
+                            # en1+ are typically Ethernet adapters
+                            ethernet_found=true
+                            ;;
+                        *)
+                            # For other devices, check ifconfig output for clues
+                            if ifconfig "$device" 2>/dev/null | grep -q "media.*Ethernet"; then
+                                ethernet_found=true
+                            elif ifconfig "$device" 2>/dev/null | grep -q "media.*autoselect"; then
+                                wifi_found=true
+                            fi
+                            ;;
+                    esac
+                fi
+            fi
+        fi
+    done <<< "$interfaces"
+    
+    # Report interface status
+    local interface_details=""
+    if [[ "$ethernet_found" == true && "$wifi_found" == true ]]; then
+        interface_details="Both Ethernet and Wi-Fi active"
+    elif [[ "$ethernet_found" == true ]]; then
+        interface_details="Ethernet connection active"
+    elif [[ "$wifi_found" == true ]]; then
+        interface_details="Wi-Fi connection active"
+    else
+        interface_details="Connection type unknown"
+    fi
+    
+    add_network_finding "Network" "Active Interfaces" "$active_interfaces" "$interface_details" "INFO" ""
+    
+    # Get IP configuration for primary interface
+    local primary_ip=$(route get default 2>/dev/null | grep interface | awk '{print $2}')
+    if [[ -n "$primary_ip" ]]; then
+        local ip_address=$(ifconfig "$primary_ip" 2>/dev/null | grep "inet " | awk '{print $2}' | head -1)
+        local subnet_mask_hex=$(ifconfig "$primary_ip" 2>/dev/null | grep "inet " | awk '{print $4}' | head -1)
+        
+        # Convert hex netmask to dotted decimal format
+        local subnet_mask="$subnet_mask_hex"
+        if [[ "$subnet_mask_hex" =~ ^0x[0-9a-fA-F]+$ ]]; then
+            subnet_mask=$(hex_to_netmask "$subnet_mask_hex")
+        fi
+        
+        if [[ -n "$ip_address" ]]; then
+            add_network_finding "Network" "Primary IP Address" "$ip_address" "Interface: $primary_ip, Mask: $subnet_mask" "INFO" ""
+        fi
+    fi
+}
+
+check_wifi_configuration() {
+    log_message "INFO" "Checking Wi-Fi configuration..." "NETWORK"
+    
+    # Check if Wi-Fi is enabled
+    local wifi_power=$(networksetup -getairportpower en0 2>/dev/null)
+    local wifi_status="Unknown"
+    
+    if echo "$wifi_power" | grep -q "On"; then
+        wifi_status="Enabled"
+    elif echo "$wifi_power" | grep -q "Off"; then
+        wifi_status="Disabled"
+    fi
+    
+    add_network_finding "Network" "Wi-Fi Status" "$wifi_status" "Airport power status" "INFO" ""
+    
+    # Check current Wi-Fi network
+    if [[ "$wifi_status" == "Enabled" ]]; then
+        local current_ssid=$(networksetup -getairportnetwork en0 2>/dev/null | cut -d: -f2 | sed 's/^ *//')
+        
+        if [[ -n "$current_ssid" && "$current_ssid" != "You are not associated with an AirPort network." ]]; then
+            # Check for open networks (security risk)
+            local security_info=$(security find-generic-password -D "AirPort network password" -a "$current_ssid" -g 2>&1)
+            local is_open=false
+            
+            if echo "$security_info" | grep -q "could not be found"; then
+                is_open=true
+            fi
+            
+            local risk_level="INFO"
+            local recommendation=""
+            
+            if [[ "$is_open" == true ]]; then
+                risk_level="HIGH"
+                recommendation="Connected to open Wi-Fi network. Use VPN or avoid transmitting sensitive data"
+            fi
+            
+            add_network_finding "Network" "Current Wi-Fi Network" "$current_ssid" "Currently connected SSID" "$risk_level" "$recommendation"
+        fi
+        
+        # Check for saved networks (potential security exposure)
+        local saved_networks=$(networksetup -listpreferredwirelessnetworks en0 2>/dev/null | grep -v "Preferred networks" | wc -l | tr -d ' ')
+        
+        local saved_risk="INFO"
+        local saved_recommendation=""
+        
+        if [[ $saved_networks -gt 20 ]]; then
+            saved_risk="LOW"
+            saved_recommendation="Large number of saved Wi-Fi networks may pose security risk. Consider removing unused networks"
+        fi
+        
+        add_network_finding "Network" "Saved Wi-Fi Networks" "$saved_networks networks" "Stored wireless network profiles" "$saved_risk" "$saved_recommendation"
+    fi
+}
+
+check_dns_configuration() {
+    log_message "INFO" "Checking DNS configuration..." "NETWORK"
+    
+    # Get DNS servers
+    local dns_servers=$(scutil --dns 2>/dev/null | grep nameserver | awk '{print $3}' | sort -u | head -5)
+    local dns_count=$(echo "$dns_servers" | wc -l | tr -d ' ')
+    
+    if [[ -n "$dns_servers" ]]; then
+        local dns_list=$(echo "$dns_servers" | tr '\n' ', ' | sed 's/, $//')
+        add_network_finding "Network" "DNS Servers" "$dns_count configured" "Servers: $dns_list" "INFO" ""
+        
+        # Check for common public DNS servers
+        local public_dns=false
+        while IFS= read -r dns; do
+            case "$dns" in
+                "8.8.8.8"|"8.8.4.4"|"1.1.1.1"|"1.0.0.1"|"208.67.222.222"|"208.67.220.220")
+                    public_dns=true
+                    break
+                    ;;
+            esac
+        done <<< "$dns_servers"
+        
+        if [[ "$public_dns" == true ]]; then
+            add_network_finding "Network" "Public DNS Detected" "Yes" "Using public DNS servers (Google, Cloudflare, etc.)" "LOW" "Consider using organization DNS servers for corporate networks"
+        fi
+    else
+        add_network_finding "Network" "DNS Configuration" "Not Found" "Could not determine DNS configuration" "LOW" "Verify DNS settings are properly configured"
+    fi
+}
+
+check_network_connections() {
+    log_message "INFO" "Checking active network connections..." "NETWORK"
+    
+    # Check for listening services
+    local listening_ports=$(netstat -an 2>/dev/null | grep LISTEN | wc -l | tr -d ' ')
+    add_network_finding "Network" "Listening Services" "$listening_ports ports" "Services accepting network connections" "INFO" ""
+    
+    # Check for high-risk ports
+    local risky_ports=("22" "23" "80" "443" "3389" "5900" "5901")
+    local found_risky=()
+    
+    for port in "${risky_ports[@]}"; do
+        if netstat -an 2>/dev/null | grep LISTEN | grep -q "\\.$port[ 	].*LISTEN"; then
+            case "$port" in
+                "22") found_risky+=("SSH ($port)") ;;
+                "23") found_risky+=("Telnet ($port)") ;;
+                "80") found_risky+=("HTTP ($port)") ;;
+                "443") found_risky+=("HTTPS ($port)") ;;
+                "3389") found_risky+=("RDP ($port)") ;;
+                "5900"|"5901") found_risky+=("VNC ($port)") ;;
+            esac
+        fi
+    done
+    
+    if [[ ${#found_risky[@]} -gt 0 ]]; then
+        local risky_list=$(IFS=", "; echo "${found_risky[*]}")
+        local risk_level="MEDIUM"
+        local recommendation="Review listening services for security implications. Disable unnecessary services"
+        
+        add_network_finding "Security" "High-Risk Listening Ports" "${#found_risky[@]} detected" "Found: $risky_list" "$risk_level" "$recommendation"
+    fi
+    
+    # Add specific port details for transparency
+    add_specific_port_details
+    
+    # Check for established connections
+    local established_connections=$(netstat -an 2>/dev/null | grep ESTABLISHED | wc -l | tr -d ' ')
+    add_network_finding "Network" "Established Connections" "$established_connections" "Active outbound network connections" "INFO" ""
+}
+
+check_network_sharing() {
+    log_message "INFO" "Checking network sharing services..." "NETWORK"
+    
+    # Check common sharing services
+    local sharing_services=(
+        "Screen Sharing:ARDAgent"
+        "File Sharing:AppleFileServer"
+        "Remote Login:RemoteLogin"
+        "Remote Management:ARDAgent"
+        "Internet Sharing:InternetSharing"
+        "Bluetooth Sharing:BluetoothSharing"
+    )
+    
+    local enabled_sharing=()
+    local risky_sharing=()
+    
+    for service in "${sharing_services[@]}"; do
+        local service_name=$(echo "$service" | cut -d: -f1)
+        local service_process=$(echo "$service" | cut -d: -f2)
+        
+        # Check if service is running
+        if pgrep -f "$service_process" >/dev/null 2>&1; then
+            enabled_sharing+=("$service_name")
+            
+            # Mark potentially risky services
+            case "$service_name" in
+                "Screen Sharing"|"Remote Login"|"Remote Management")
+                    risky_sharing+=("$service_name")
+                    ;;
+            esac
+        fi
+    done
+    
+    if [[ ${#enabled_sharing[@]} -gt 0 ]]; then
+        local sharing_list=$(IFS=", "; echo "${enabled_sharing[*]}")
+        add_network_finding "Network" "Enabled Sharing Services" "${#enabled_sharing[@]} services" "Active: $sharing_list" "INFO" ""
+        
+        if [[ ${#risky_sharing[@]} -gt 0 ]]; then
+            local risky_list=$(IFS=", "; echo "${risky_sharing[*]}")
+            add_network_finding "Security" "Remote Access Services" "${#risky_sharing[@]} enabled" "Services: $risky_list" "MEDIUM" "Review remote access services for security and business justification"
+        fi
+    else
+        add_network_finding "Network" "Sharing Services" "None Active" "No network sharing services detected" "INFO" ""
+    fi
+}
+
+check_vpn_connections() {
+    log_message "INFO" "Checking VPN connections..." "NETWORK"
+    
+    # Check for VPN interfaces
+    local vpn_interfaces=$(ifconfig 2>/dev/null | grep -E "^(utun|ppp|ipsec)" | cut -d: -f1)
+    local vpn_count=0
+    local active_vpn=false
+    local active_vpn_interfaces=()
+    local all_vpn_interfaces=()
+    
+    while IFS= read -r interface; do
+        if [[ -n "$interface" ]]; then
+            ((vpn_count++))
+            all_vpn_interfaces+=("$interface")
+            # Check for IPv4 addresses (not IPv6 link-local) to determine if VPN is truly active
+            local ipv4_addr=$(ifconfig "$interface" 2>/dev/null | grep "inet " | grep -v "127\." | awk '{print $2}')
+            if [[ -n "$ipv4_addr" ]]; then
+                active_vpn=true
+                active_vpn_interfaces+=("$interface($ipv4_addr)")
+            fi
+        fi
+    done <<< "$vpn_interfaces"
+    
+    if [[ $vpn_count -gt 0 ]]; then
+        local vpn_status="Configured"
+        local all_interfaces_list=$(IFS=", "; echo "${all_vpn_interfaces[*]}")
+        local vpn_details="$vpn_count VPN interfaces: $all_interfaces_list"
+        
+        if [[ "$active_vpn" == true ]]; then
+            vpn_status="Active"
+            local active_list=$(IFS=", "; echo "${active_vpn_interfaces[*]}")
+            vpn_details="$vpn_details - Active: $active_list"
+        else
+            vpn_details="$vpn_count system tunnel interfaces (no active VPN connections)"
+        fi
+        
+        add_network_finding "Network" "VPN Configuration" "$vpn_status" "$vpn_details" "INFO" ""
+    else
+        add_network_finding "Network" "VPN Configuration" "None Detected" "No VPN interfaces found" "INFO" ""
+    fi
+    
+    # Check for common VPN applications
+    local vpn_apps=(
+        "NordVPN.app"
+        "ExpressVPN.app"
+        "Tunnelblick.app"
+        "Viscosity.app"
+        "SurfShark.app"
+        "CyberGhost.app"
+        "Private Internet Access.app"
+    )
+    
+    local found_vpn_apps=()
+    for vpn_app in "${vpn_apps[@]}"; do
+        if [[ -d "/Applications/$vpn_app" ]]; then
+            local app_name=$(basename "$vpn_app" .app)
+            found_vpn_apps+=("$app_name")
+        fi
+    done
+    
+    if [[ ${#found_vpn_apps[@]} -gt 0 ]]; then
+        local vpn_app_list=$(IFS=", "; echo "${found_vpn_apps[*]}")
+        add_network_finding "Network" "VPN Applications" "${#found_vpn_apps[@]} installed" "Found: $vpn_app_list" "INFO" ""
+    fi
+}
+
+# Helper function to add network findings to the array
+add_network_finding() {
+    local category="$1"
+    local item="$2"
+    local value="$3"
+    local details="$4"
+    local risk_level="$5"
+    local recommendation="$6"
+    
+    # Escape JSON strings to prevent control character issues
+    category=$(escape_json_string "$category")
+    item=$(escape_json_string "$item")
+    value=$(escape_json_string "$value")
+    details=$(escape_json_string "$details")
+    risk_level=$(escape_json_string "$risk_level")
+    recommendation=$(escape_json_string "$recommendation")
+    
+    NETWORK_FINDINGS+=("{\"category\":\"$category\",\"item\":\"$item\",\"value\":\"$value\",\"details\":\"$details\",\"risk_level\":\"$risk_level\",\"recommendation\":\"$recommendation\"}")
+}
+
+# Function to add specific port details like Windows report
+add_specific_port_details() {
+    # Get listening ports with process information
+    if command -v lsof >/dev/null 2>&1; then
+        # Get listening TCP ports with process info
+        local port_details=$(lsof -iTCP -sTCP:LISTEN -n 2>/dev/null | grep -v COMMAND)
+        
+        # Function to get port description (bash 3.2 compatible)
+        get_port_description() {
+            case "$1" in
+                "22") echo "SSH" ;;
+                "80") echo "HTTP" ;;
+                "88") echo "Kerberos" ;;
+                "443") echo "HTTPS" ;;
+                "445") echo "SMB/CIFS" ;;
+                "993") echo "IMAPS" ;;
+                "995") echo "POP3S" ;;
+                "5000") echo "UPnP/Flask Dev" ;;
+                "7000") echo "Development Server" ;;
+                "8080") echo "HTTP Alternative" ;;
+                "8989") echo "Sonarr/Web Service" ;;
+                "9993") echo "ZeroTier" ;;
+                *) echo "Unknown Service" ;;
+            esac
+        }
+        
+        # Track processed ports to avoid duplicates
+        local processed_ports=()
+        
+        # Process each listening port
+        while IFS= read -r line; do
+            if [[ -n "$line" ]]; then
+                local process=$(echo "$line" | awk '{print $1}')
+                local pid=$(echo "$line" | awk '{print $2}')
+                local port=$(echo "$line" | awk '{print $9}' | sed 's/.*://' | sed 's/(.*//')
+                
+                # Skip if already processed this port
+                local already_processed=false
+                for processed in "${processed_ports[@]}"; do
+                    if [[ "$processed" == "$port" ]]; then
+                        already_processed=true
+                        break
+                    fi
+                done
+                
+                if [[ "$already_processed" == false && -n "$port" && "$port" =~ ^[0-9]+$ ]]; then
+                    processed_ports+=("$port")
+                    
+                    # Get service description
+                    local service_desc=$(get_port_description "$port")
+                    
+                    # Add port finding
+                    add_network_finding "Network" "Port $port" "$service_desc" "Process: $process (PID: $pid)" "INFO" ""
+                fi
+            fi
+        done <<< "$port_details"
+    fi
+}
+
+# Function to get findings for report generation
+get_network_findings() {
+    printf '%s\n' "${NETWORK_FINDINGS[@]}"
+}
+
+# [EXPORT] export_reports - Report export functionality for macOS
+# Order: 200
+#!/bin/bash
+
+# macOSWorkstationAuditor - Report Export Module
+# Version 1.0.0
+
+# Global variables for report generation (bash 3.2 compatible)
+ALL_FINDINGS=()
+RISK_COUNT_HIGH=0
+RISK_COUNT_MEDIUM=0
+RISK_COUNT_LOW=0
+RISK_COUNT_INFO=0
+
+export_markdown_report() {
+    log_message "INFO" "Generating technician report..." "REPORT"
+
+    # Generate technician report (matching Windows format) - findings already collected
+    local report_file="$OUTPUT_PATH/${BASE_FILENAME}_technician_report.md"
+    
+    generate_markdown_header > "$report_file"
+    generate_executive_summary >> "$report_file"
+    generate_critical_action_items >> "$report_file"
+    generate_system_overview >> "$report_file"
+    generate_system_resources >> "$report_file"
+    generate_network_interfaces >> "$report_file"
+    generate_security_management >> "$report_file"
+    generate_security_analysis >> "$report_file"
+    generate_software_inventory >> "$report_file"
+    generate_recommendations >> "$report_file"
+    generate_markdown_footer >> "$report_file"
+    
+    log_message "SUCCESS" "Technician report generated: $report_file" "REPORT"
+}
+
+export_raw_data_json() {
+    log_message "INFO" "Generating JSON raw data export..." "REPORT"
+
+    # Use findings already collected - don't collect again
+    local json_file="$OUTPUT_PATH/${BASE_FILENAME}_raw_data.json"
+    
+    # Generate JSON structure matching Windows version format
+    cat > "$json_file" << EOF
+{
+  "metadata": {
+    "computer_name": "$COMPUTER_NAME",
+    "audit_timestamp": "$(date -u '+%Y-%m-%dT%H:%M:%SZ')",
+    "tool_version": "$CONFIG_VERSION",
+    "platform": "macOS",
+    "os_version": "$(sw_vers -productVersion)",
+    "os_build": "$(sw_vers -buildVersion)",
+    "audit_duration_seconds": $(($(date +%s) - START_TIME))
+  },
+  "system_context": {
+    "os_info": {
+      "caption": "$(sw_vers -productName) $(sw_vers -productVersion)",
+      "version": "$(sw_vers -productVersion)",
+      "build_number": "$(sw_vers -buildVersion)",
+      "architecture": "$(uname -m)",
+      "last_boot_time": "$(date -r $(sysctl -n kern.boottime | awk '{print $4}' | tr -d ',') '+%Y-%m-%d %H:%M:%S')"
+    },
+    "hardware_info": {
+      "model": "$(sysctl -n hw.model)",
+      "total_memory_gb": $(echo "scale=2; $(sysctl -n hw.memsize) / 1073741824" | bc),
+      "cpu_cores": $(sysctl -n hw.ncpu)
+    },
+    "domain": "$(hostname | cut -d. -f2- || echo 'WORKGROUP')",
+    "computer_name": "$COMPUTER_NAME"
+  },
+  "compliance_framework": {
+    "findings": [
+EOF
+
+    # Add all findings as JSON
+    local first_finding=true
+    for finding in "${ALL_FINDINGS[@]}"; do
+        if [[ "$first_finding" == true ]]; then
+            first_finding=false
+        else
+            echo "," >> "$json_file"
+        fi
+        
+        # Parse JSON finding using native bash/sed/awk (no Python dependency)
+        local category=$(echo "$finding" | sed -n 's/.*"category":"\([^"]*\)".*/\1/p' | head -1)
+        local item=$(echo "$finding" | sed -n 's/.*"item":"\([^"]*\)".*/\1/p' | head -1)
+        local value=$(echo "$finding" | sed -n 's/.*"value":"\([^"]*\)".*/\1/p' | head -1)
+        local details=$(echo "$finding" | sed -n 's/.*"details":"\([^"]*\)".*/\1/p' | head -1)
+        local risk_level=$(echo "$finding" | sed -n 's/.*"risk_level":"\([^"]*\)".*/\1/p' | head -1)
+        local recommendation=$(echo "$finding" | sed -n 's/.*"recommendation":"\([^"]*\)".*/\1/p' | head -1)
+        
+        # Set defaults if parsing failed
+        [[ -z "$category" ]] && category="Unknown"
+        [[ -z "$item" ]] && item="Unknown"
+        [[ -z "$value" ]] && value="Unknown"
+        [[ -z "$risk_level" ]] && risk_level="INFO"
+
+        # Skip empty or malformed entries
+        if [[ "$item" == "Unknown" && "$value" == "Unknown" ]]; then
+            continue
+        fi
+
+        # Generate finding ID
+        local finding_id="macOS-$(echo "$category$item" | tr '[:upper:]' '[:lower:]' | tr ' ' '-' | tr -cd '[:alnum:]-')"
+        
+        cat >> "$json_file" << EOF
+      {
+        "finding_id": "$finding_id",
+        "category": "$category",
+        "item": "$item",
+        "value": "$value",
+        "requirement": "$details",
+        "risk_level": "$risk_level",
+        "recommendation": "$recommendation",
+        "framework": "macOS_Security_Assessment"
+      }
+EOF
+    done
+
+    cat >> "$json_file" << EOF
+    ]
+  },
+  "summary": {
+    "total_findings": ${#ALL_FINDINGS[@]},
+    "risk_distribution": {
+      "HIGH": $RISK_COUNT_HIGH,
+      "MEDIUM": $RISK_COUNT_MEDIUM,
+      "LOW": $RISK_COUNT_LOW,
+      "INFO": $RISK_COUNT_INFO
+    }
+  }
+}
+EOF
+
+    log_message "SUCCESS" "JSON raw data exported: $json_file" "REPORT"
+}
+
+collect_all_findings() {
+    log_message "INFO" "Collecting findings from all modules..." "REPORT"
+    
+    # Initialize arrays and counters
+    ALL_FINDINGS=()
+    RISK_COUNT_HIGH=0
+    RISK_COUNT_MEDIUM=0
+    RISK_COUNT_LOW=0
+    RISK_COUNT_INFO=0
+    
+    # Collect findings from each module if functions exist
+    local module_functions=(
+        "get_system_findings"
+        "get_security_findings"
+        "get_software_findings"
+        "get_network_findings"
+        "get_user_findings"
+        "get_patch_findings"
+        "get_disk_findings"
+        "get_memory_findings"
+        "get_process_findings"
+    )
+    
+    for func in "${module_functions[@]}"; do
+        if declare -f "$func" >/dev/null 2>&1; then
+            log_message "INFO" "Collecting findings from $func..." "REPORT"
+            while IFS= read -r finding; do
+                if [[ -n "$finding" ]]; then
+                    ALL_FINDINGS+=("$finding")
+                    
+                    # Count risk levels using native bash
+                    local risk_level=$(echo "$finding" | sed -n 's/.*"risk_level":"\([^"]*\)".*/\1/p' | head -1)
+                    [[ -z "$risk_level" ]] && risk_level="INFO"
+                    case "$risk_level" in
+                        "HIGH") ((RISK_COUNT_HIGH++)) ;;
+                        "MEDIUM") ((RISK_COUNT_MEDIUM++)) ;;
+                        "LOW") ((RISK_COUNT_LOW++)) ;;
+                        *) ((RISK_COUNT_INFO++)) ;;
+                    esac
+                fi
+            done < <($func 2>/dev/null || echo "")
+        fi
+    done
+    
+    log_message "SUCCESS" "Collected ${#ALL_FINDINGS[@]} total findings" "REPORT"
+}
+
+generate_markdown_header() {
+    cat << EOF
+# macOS Workstation Security Audit Report
+
+**Computer:** $COMPUTER_NAME
+**Generated:** $(date '+%Y-%m-%d %H:%M:%S')
+**Tool Version:** macOS Workstation Auditor v$CONFIG_VERSION
+
+EOF
+}
+
+generate_executive_summary() {
+    cat << EOF
+## Executive Summary
+
+| Risk Level | Count | Priority |
+|------------|-------|----------|
+| HIGH | $RISK_COUNT_HIGH | Immediate Action Required |
+| MEDIUM | $RISK_COUNT_MEDIUM | Review and Plan Remediation |
+| LOW | $RISK_COUNT_LOW | Monitor and Maintain |
+| INFO | $RISK_COUNT_INFO | Informational |
+
+EOF
+}
+
+generate_critical_action_items() {
+    # Only generate this section if there are HIGH or MEDIUM risk items
+    if [[ $RISK_COUNT_HIGH -gt 0 || $RISK_COUNT_MEDIUM -gt 0 ]]; then
+        cat << EOF
+## Critical Action Items
+
+EOF
+        
+        if [[ $RISK_COUNT_HIGH -gt 0 ]]; then
+            cat << EOF
+### HIGH PRIORITY (Immediate Action Required)
+
+EOF
+            for finding in "${ALL_FINDINGS[@]}"; do
+                local finding_risk=$(echo "$finding" | sed -n 's/.*"risk_level":"\([^"]*\)".*/\1/p' | head -1)
+                [[ -z "$finding_risk" ]] && finding_risk="INFO"
+                
+                if [[ "$finding_risk" == "HIGH" ]]; then
+                    local category=$(echo "$finding" | sed -n 's/.*"category":"\([^"]*\)".*/\1/p' | head -1)
+                    local item=$(echo "$finding" | sed -n 's/.*"item":"\([^"]*\)".*/\1/p' | head -1)
+                    local value=$(echo "$finding" | sed -n 's/.*"value":"\([^"]*\)".*/\1/p' | head -1)
+                    local details=$(echo "$finding" | sed -n 's/.*"details":"\([^"]*\)".*/\1/p' | head -1)
+                    local recommendation=$(echo "$finding" | sed -n 's/.*"recommendation":"\([^"]*\)".*/\1/p' | head -1)
+                    
+                    [[ -z "$category" ]] && category="Unknown"
+                    [[ -z "$item" ]] && item="Unknown"
+                    [[ -z "$value" ]] && value="Unknown"
+                    
+                    cat << EOF
+- **$category - $item:** $value
+  - Details: $details
+EOF
+                    if [[ -n "$recommendation" ]]; then
+                        cat << EOF
+  - Recommendation: $recommendation
+EOF
+                    fi
+                    echo ""
+                fi
+            done
+        fi
+        
+        if [[ $RISK_COUNT_MEDIUM -gt 0 ]]; then
+            cat << EOF
+### MEDIUM PRIORITY (Review and Plan)
+
+EOF
+            for finding in "${ALL_FINDINGS[@]}"; do
+                local finding_risk=$(echo "$finding" | sed -n 's/.*"risk_level":"\([^"]*\)".*/\1/p' | head -1)
+                [[ -z "$finding_risk" ]] && finding_risk="INFO"
+                
+                if [[ "$finding_risk" == "MEDIUM" ]]; then
+                    local category=$(echo "$finding" | sed -n 's/.*"category":"\([^"]*\)".*/\1/p' | head -1)
+                    local item=$(echo "$finding" | sed -n 's/.*"item":"\([^"]*\)".*/\1/p' | head -1)
+                    local value=$(echo "$finding" | sed -n 's/.*"value":"\([^"]*\)".*/\1/p' | head -1)
+                    local details=$(echo "$finding" | sed -n 's/.*"details":"\([^"]*\)".*/\1/p' | head -1)
+                    local recommendation=$(echo "$finding" | sed -n 's/.*"recommendation":"\([^"]*\)".*/\1/p' | head -1)
+                    
+                    [[ -z "$category" ]] && category="Unknown"
+                    [[ -z "$item" ]] && item="Unknown"
+                    [[ -z "$value" ]] && value="Unknown"
+                    
+                    cat << EOF
+- **$category - $item:** $value
+  - Details: $details
+EOF
+                    if [[ -n "$recommendation" ]]; then
+                        cat << EOF
+  - Recommendation: $recommendation
+EOF
+                    fi
+                    echo ""
+                fi
+            done
+        fi
+    fi
+}
+
+generate_additional_information() {
+    # Get LOW and INFO items, grouped by category, excluding categories that appear in Critical Action Items
+    local additional_items=()
+    local critical_categories=()
+    
+    # Debug: Log the number of findings we're starting with
+    log_message "INFO" "Total findings to process: ${#ALL_FINDINGS[@]}" "REPORT"
+    
+    # First, collect categories that appear in HIGH/MEDIUM findings
+    for finding in "${ALL_FINDINGS[@]}"; do
+        local finding_risk=$(echo "$finding" | sed -n 's/.*"risk_level":"\([^"]*\)".*/\1/p' | head -1)
+        [[ -z "$finding_risk" ]] && finding_risk="INFO"
+        
+        if [[ "$finding_risk" == "HIGH" || "$finding_risk" == "MEDIUM" ]]; then
+            local category=$(echo "$finding" | sed -n 's/.*"category":"\([^"]*\)".*/\1/p' | head -1)
+            [[ -n "$category" ]] && critical_categories+=("$category")
+        fi
+    done
+    
+    # Collect LOW and INFO items not in critical categories
+    for finding in "${ALL_FINDINGS[@]}"; do
+        local finding_risk=$(echo "$finding" | sed -n 's/.*"risk_level":"\([^"]*\)".*/\1/p' | head -1)
+        [[ -z "$finding_risk" ]] && finding_risk="INFO"
+        
+        if [[ "$finding_risk" == "LOW" || "$finding_risk" == "INFO" ]]; then
+            local category=$(echo "$finding" | sed -n 's/.*"category":"\([^"]*\)".*/\1/p' | head -1)
+            local item=$(echo "$finding" | sed -n 's/.*"item":"\([^"]*\)".*/\1/p' | head -1)
+            
+            # Check if this category appears in critical findings
+            local is_critical_category=false
+            for crit_cat in "${critical_categories[@]}"; do
+                if [[ "$category" == "$crit_cat" ]]; then
+                    is_critical_category=true
+                    break
+                fi
+            done
+            
+            # Exclude items that appear in dedicated sections
+            local is_dedicated_section_item=false
+
+            # Exclude System Configuration items
+            if [[ "$category" == "System" ]]; then
+                case "$item" in
+                    "Operating System"|"Hardware"|"Computer Name"|"System Uptime"|"Time Machine Backups"|"Backup Solutions")
+                        is_dedicated_section_item=true
+                        ;;
+                esac
+            fi
+
+            # Exclude Management items (now in System Configuration)
+            if [[ "$category" == "Management" ]]; then
+                case "$item" in
+                    "MDM Enrollment"|"Apple Business Manager"|"Device Supervision"|"Configuration Profiles")
+                        is_dedicated_section_item=true
+                        ;;
+                esac
+            fi
+
+            # Exclude Process items (now in Process Analysis)
+            if [[ "$category" == "Process" ]]; then
+                case "$item" in
+                    "Process Activity"|"Top 5 Process CPU Usage"|"Top 5 Process Memory Usage")
+                        is_dedicated_section_item=true
+                        ;;
+                esac
+            fi
+
+            # Exclude Memory items (now in Memory Analysis)
+            if [[ "$category" == "Memory" ]]; then
+                case "$item" in
+                    "Memory Usage"|"Top 5 Process Memory Usage"|"Memory Pressure")
+                        is_dedicated_section_item=true
+                        ;;
+                esac
+            fi
+
+            # Exclude Storage items (now in Disk Analysis) but allow Directory items to remain excluded
+            if [[ ("$category" == "Storage" || "$item" =~ "Disk") && ! "$item" =~ "Directory:" ]]; then
+                is_dedicated_section_item=true
+            fi
+
+            # Always exclude directory listings (unwanted fluff)
+            if [[ "$item" =~ "Directory:" ]]; then
+                is_dedicated_section_item=true
+            fi
+
+            # Exclude Network items (now in Network Analysis)
+            if [[ "$category" == "Network" ]]; then
+                case "$item" in
+                    "Active Interfaces"|"Primary IP Address"|"Wi-Fi Status"|"Saved Wi-Fi Networks"|"DNS Servers"|"Listening Services"|"Sharing Services"|"VPN Configuration"|"High-Risk Listening Ports")
+                        is_dedicated_section_item=true
+                        ;;
+                esac
+            fi
+
+            # Always exclude established connections (unwanted noise)
+            if [[ "$item" == "Established Connections" ]]; then
+                is_dedicated_section_item=true
+            fi
+
+            # Exclude port findings (now in Network Analysis)
+            if [[ "$item" =~ "Port " && "$category" == "Network" ]]; then
+                is_dedicated_section_item=true
+            fi
+
+            # Include only non-critical categories and non-dedicated section items - no duplicates allowed
+            if [[ "$is_critical_category" == false && "$is_dedicated_section_item" == false ]]; then
+                additional_items+=("$finding")
+            fi
+        fi
+    done
+    
+    if [[ ${#additional_items[@]} -gt 0 ]]; then
+        cat << EOF
+## Additional Information
+
+EOF
+        
+        # Group by category and only output categories that have items
+        local categories=()
+        log_message "INFO" "Additional items count: ${#additional_items[@]}" "REPORT"
+        
+        for finding in "${additional_items[@]}"; do
+            local category=$(echo "$finding" | sed -n 's/.*"category":"\([^"]*\)".*/\1/p' | head -1)
+            [[ -z "$category" ]] && category="Unknown"
+            
+            log_message "INFO" "Found category: '$category' from finding: $(echo "$finding" | cut -c1-100)..." "REPORT"
+            
+            # Add to categories if not already present
+            local category_exists=false
+            for existing_cat in "${categories[@]}"; do
+                if [[ "$existing_cat" == "$category" ]]; then
+                    category_exists=true
+                    break
+                fi
+            done
+            [[ "$category_exists" == false ]] && categories+=("$category")
+        done
+        
+        log_message "INFO" "Categories collected: ${categories[*]}" "REPORT"
+        
+        # Sort and output categories, but only if they have items
+        for category in $(printf '%s\n' "${categories[@]}" | sort); do
+            # First check if this category actually has items
+            local category_has_items=false
+            for finding in "${additional_items[@]}"; do
+                local finding_category=$(echo "$finding" | sed -n 's/.*"category":"\([^"]*\)".*/\1/p' | head -1)
+                [[ -z "$finding_category" ]] && finding_category="Unknown"
+                
+                if [[ "$finding_category" == "$category" ]]; then
+                    category_has_items=true
+                    break
+                fi
+            done
+            
+            # Only output the category if it has items
+            if [[ "$category_has_items" == true ]]; then
+                cat << EOF
+### $category
+
+EOF
+                
+                for finding in "${additional_items[@]}"; do
+                    local finding_category=$(echo "$finding" | sed -n 's/.*"category":"\([^"]*\)".*/\1/p' | head -1)
+                    [[ -z "$finding_category" ]] && finding_category="Unknown"
+                    
+                    if [[ "$finding_category" == "$category" ]]; then
+                        local item=$(echo "$finding" | sed -n 's/.*"item":"\([^"]*\)".*/\1/p' | head -1)
+                        local value=$(echo "$finding" | sed -n 's/.*"value":"\([^"]*\)".*/\1/p' | head -1)
+                        local details=$(echo "$finding" | sed -n 's/.*"details":"\([^"]*\)".*/\1/p' | head -1)
+                        local recommendation=$(echo "$finding" | sed -n 's/.*"recommendation":"\([^"]*\)".*/\1/p' | head -1)
+                        local risk_level=$(echo "$finding" | sed -n 's/.*"risk_level":"\([^"]*\)".*/\1/p' | head -1)
+                        
+                        [[ -z "$item" ]] && item="Unknown"
+                        [[ -z "$value" ]] && value="Unknown"
+                        [[ -z "$risk_level" ]] && risk_level="INFO"
+                        
+                        # Skip empty or malformed entries
+                        if [[ "$item" == "Unknown" && "$value" == "Unknown" ]]; then
+                            continue
+                        fi
+                        
+                        local risk_icon="[INFO]"
+                        [[ "$risk_level" == "LOW" ]] && risk_icon="[LOW]"
+                        
+                        cat << EOF
+**$risk_icon $item:** $value
+
+- **Details:** $details
+EOF
+                        if [[ -n "$recommendation" ]]; then
+                            cat << EOF
+- **Recommendation:** $recommendation
+EOF
+                        fi
+                        echo ""
+                    fi
+                done
+            fi
+        done
+    fi
+}
+
+generate_system_overview() {
+    cat << EOF
+## System Overview
+
+EOF
+
+    # Core system identification - no duplicates, clean format
+    for finding in "${ALL_FINDINGS[@]}"; do
+        local item=$(echo "$finding" | sed -n 's/.*"item":"\([^"]*\)".*/\1/p' | head -1)
+        if [[ "$item" == "Operating System" ]]; then
+            local value=$(echo "$finding" | sed -n 's/.*"value":"\([^"]*\)".*/\1/p' | head -1)
+            local details=$(echo "$finding" | sed -n 's/.*"details":"\([^"]*\)".*/\1/p' | head -1)
+            echo "- **Operating System:** $value - $details"
+            break
+        fi
+    done
+
+    for finding in "${ALL_FINDINGS[@]}"; do
+        local item=$(echo "$finding" | sed -n 's/.*"item":"\([^"]*\)".*/\1/p' | head -1)
+        if [[ "$item" == "Hardware" ]]; then
+            local value=$(echo "$finding" | sed -n 's/.*"value":"\([^"]*\)".*/\1/p' | head -1)
+            local details=$(echo "$finding" | sed -n 's/.*"details":"\([^"]*\)".*/\1/p' | head -1)
+            echo "- **Hardware:** $value - $details"
+            break
+        fi
+    done
+
+    for finding in "${ALL_FINDINGS[@]}"; do
+        local item=$(echo "$finding" | sed -n 's/.*"item":"\([^"]*\)".*/\1/p' | head -1)
+        if [[ "$item" == "Computer Name" ]]; then
+            local value=$(echo "$finding" | sed -n 's/.*"value":"\([^"]*\)".*/\1/p' | head -1)
+            local details=$(echo "$finding" | sed -n 's/.*"details":"\([^"]*\)".*/\1/p' | head -1)
+            echo "- **Computer Name:** $value - $details"
+            break
+        fi
+    done
+
+    for finding in "${ALL_FINDINGS[@]}"; do
+        local item=$(echo "$finding" | sed -n 's/.*"item":"\([^"]*\)".*/\1/p' | head -1)
+        if [[ "$item" == "System Uptime" ]]; then
+            local value=$(echo "$finding" | sed -n 's/.*"value":"\([^"]*\)".*/\1/p' | head -1)
+            local details=$(echo "$finding" | sed -n 's/.*"details":"\([^"]*\)".*/\1/p' | head -1)
+            echo "- **Uptime:** $value - $details"
+            break
+        fi
+    done
+
+    # Updates section (moved here from buried location)
+    for finding in "${ALL_FINDINGS[@]}"; do
+        local item=$(echo "$finding" | sed -n 's/.*"item":"\([^"]*\)".*/\1/p' | head -1)
+        if [[ "$item" == "Available Updates" ]]; then
+            local value=$(echo "$finding" | sed -n 's/.*"value":"\([^"]*\)".*/\1/p' | head -1)
+            local details=$(echo "$finding" | sed -n 's/.*"details":"\([^"]*\)".*/\1/p' | head -1)
+            echo "- **Updates:** $value - $details"
+            break
+        fi
+    done
+
+    echo ""
+}
+
+generate_system_resources() {
+    cat << EOF
+## System Resources
+
+EOF
+
+    # Memory - show once, no duplicates
+    for finding in "${ALL_FINDINGS[@]}"; do
+        local item=$(echo "$finding" | sed -n 's/.*"item":"\([^"]*\)".*/\1/p' | head -1)
+        if [[ "$item" == "Memory Usage" ]]; then
+            local value=$(echo "$finding" | sed -n 's/.*"value":"\([^"]*\)".*/\1/p' | head -1)
+            local details=$(echo "$finding" | sed -n 's/.*"details":"\([^"]*\)".*/\1/p' | head -1)
+            echo "- **Memory Usage:** $value - $details"
+            break
+        fi
+    done
+
+    # Top memory processes - show once
+    for finding in "${ALL_FINDINGS[@]}"; do
+        local item=$(echo "$finding" | sed -n 's/.*"item":"\([^"]*\)".*/\1/p' | head -1)
+        if [[ "$item" == "Top 5 Process Memory Usage" ]]; then
+            local value=$(echo "$finding" | sed -n 's/.*"value":"\([^"]*\)".*/\1/p' | head -1)
+            local details=$(echo "$finding" | sed -n 's/.*"details":"\([^"]*\)".*/\1/p' | head -1)
+            echo "- **Top Memory Processes:** $value - $details"
+            break
+        fi
+    done
+
+    # Top CPU processes - show if available for consistency
+    for finding in "${ALL_FINDINGS[@]}"; do
+        local item=$(echo "$finding" | sed -n 's/.*"item":"\([^"]*\)".*/\1/p' | head -1)
+        if [[ "$item" == "Top 5 Process CPU Usage" ]]; then
+            local value=$(echo "$finding" | sed -n 's/.*"value":"\([^"]*\)".*/\1/p' | head -1)
+            local details=$(echo "$finding" | sed -n 's/.*"details":"\([^"]*\)".*/\1/p' | head -1)
+            echo "- **Top CPU Processes:** $value - $details"
+            break
+        fi
+    done
+
+    # Process count - show once
+    for finding in "${ALL_FINDINGS[@]}"; do
+        local item=$(echo "$finding" | sed -n 's/.*"item":"\([^"]*\)".*/\1/p' | head -1)
+        if [[ "$item" == "Process Activity" ]]; then
+            local value=$(echo "$finding" | sed -n 's/.*"value":"\([^"]*\)".*/\1/p' | head -1)
+            local details=$(echo "$finding" | sed -n 's/.*"details":"\([^"]*\)".*/\1/p' | head -1)
+            echo "- **Active Processes:** $value - $details"
+            break
+        fi
+    done
+
+    # Disk usage - show only the main volume, no directory clutter
+    for finding in "${ALL_FINDINGS[@]}"; do
+        local item=$(echo "$finding" | sed -n 's/.*"item":"\([^"]*\)".*/\1/p' | head -1)
+        local risk_level=$(echo "$finding" | sed -n 's/.*"risk_level":"\([^"]*\)".*/\1/p' | head -1)
+        if [[ "$item" =~ "Disk Usage: /System/Volumes/Data" ]]; then
+            local value=$(echo "$finding" | sed -n 's/.*"value":"\([^"]*\)".*/\1/p' | head -1)
+            local details=$(echo "$finding" | sed -n 's/.*"details":"\([^"]*\)".*/\1/p' | head -1)
+            local recommendation=$(echo "$finding" | sed -n 's/.*"recommendation":"\([^"]*\)".*/\1/p' | head -1)
+            if [[ "$risk_level" == "MEDIUM" || "$risk_level" == "HIGH" ]]; then
+                echo "- **Disk Space Warning:** $value - $details"
+                if [[ -n "$recommendation" ]]; then
+                    echo "  - Action: $recommendation"
+                fi
+            else
+                echo "- **Disk Space:** $value - $details"
+            fi
+            break
+        fi
+    done
+
+    echo ""
+}
+
+generate_network_interfaces() {
+    cat << EOF
+## Network Configuration
+
+EOF
+
+    # Network interface basics - no duplicates
+    for finding in "${ALL_FINDINGS[@]}"; do
+        local item=$(echo "$finding" | sed -n 's/.*"item":"\([^"]*\)".*/\1/p' | head -1)
+        if [[ "$item" == "Active Interfaces" ]]; then
+            local value=$(echo "$finding" | sed -n 's/.*"value":"\([^"]*\)".*/\1/p' | head -1)
+            local details=$(echo "$finding" | sed -n 's/.*"details":"\([^"]*\)".*/\1/p' | head -1)
+            echo "- **Network Status:** $value - $details"
+            break
+        fi
+    done
+
+    for finding in "${ALL_FINDINGS[@]}"; do
+        local item=$(echo "$finding" | sed -n 's/.*"item":"\([^"]*\)".*/\1/p' | head -1)
+        if [[ "$item" == "Primary IP Address" ]]; then
+            local value=$(echo "$finding" | sed -n 's/.*"value":"\([^"]*\)".*/\1/p' | head -1)
+            local details=$(echo "$finding" | sed -n 's/.*"details":"\([^"]*\)".*/\1/p' | head -1)
+            echo "- **IP Address:** $value - $details"
+            break
+        fi
+    done
+
+    for finding in "${ALL_FINDINGS[@]}"; do
+        local item=$(echo "$finding" | sed -n 's/.*"item":"\([^"]*\)".*/\1/p' | head -1)
+        if [[ "$item" == "DNS Servers" ]]; then
+            local value=$(echo "$finding" | sed -n 's/.*"value":"\([^"]*\)".*/\1/p' | head -1)
+            local details=$(echo "$finding" | sed -n 's/.*"details":"\([^"]*\)".*/\1/p' | head -1)
+            echo "- **DNS:** $value - $details"
+            break
+        fi
+    done
+
+    # VPN info if present
+    for finding in "${ALL_FINDINGS[@]}"; do
+        local item=$(echo "$finding" | sed -n 's/.*"item":"\([^"]*\)".*/\1/p' | head -1)
+        if [[ "$item" == "VPN Configuration" ]]; then
+            local value=$(echo "$finding" | sed -n 's/.*"value":"\([^"]*\)".*/\1/p' | head -1)
+            local details=$(echo "$finding" | sed -n 's/.*"details":"\([^"]*\)".*/\1/p' | head -1)
+            echo "- **VPN:** $value - $details"
+            break
+        fi
+    done
+
+    echo ""
+}
+
+generate_security_management() {
+    cat << EOF
+## Security & Management
+
+EOF
+
+    # Authentication
+    for finding in "${ALL_FINDINGS[@]}"; do
+        local item=$(echo "$finding" | sed -n 's/.*"item":"\([^"]*\)".*/\1/p' | head -1)
+        if [[ "$item" == "Login Management" ]]; then
+            local value=$(echo "$finding" | sed -n 's/.*"value":"\([^"]*\)".*/\1/p' | head -1)
+            local details=$(echo "$finding" | sed -n 's/.*"details":"\([^"]*\)".*/\1/p' | head -1)
+            echo "- **Authentication:** $value - $details"
+            break
+        fi
+    done
+
+    # MDM and management - consolidated
+    for finding in "${ALL_FINDINGS[@]}"; do
+        local item=$(echo "$finding" | sed -n 's/.*"item":"\([^"]*\)".*/\1/p' | head -1)
+        if [[ "$item" == "MDM Enrollment" ]]; then
+            local value=$(echo "$finding" | sed -n 's/.*"value":"\([^"]*\)".*/\1/p' | head -1)
+            echo "- **Device Management:** $value (MDM)"
+            break
+        fi
+    done
+
+    for finding in "${ALL_FINDINGS[@]}"; do
+        local item=$(echo "$finding" | sed -n 's/.*"item":"\([^"]*\)".*/\1/p' | head -1)
+        if [[ "$item" == "Device Supervision" ]]; then
+            local value=$(echo "$finding" | sed -n 's/.*"value":"\([^"]*\)".*/\1/p' | head -1)
+            echo "- **Device Supervision:** $value"
+            break
+        fi
+    done
+
+    # Backup - fix the duplicate issue
+    local backup_found=false
+    for finding in "${ALL_FINDINGS[@]}"; do
+        local item=$(echo "$finding" | sed -n 's/.*"item":"\([^"]*\)".*/\1/p' | head -1)
+        if [[ "$item" == "Time Machine Backups" && "$backup_found" == false ]]; then
+            local value=$(echo "$finding" | sed -n 's/.*"value":"\([^"]*\)".*/\1/p' | head -1)
+            local details=$(echo "$finding" | sed -n 's/.*"details":"\([^"]*\)".*/\1/p' | head -1)
+            local recommendation=$(echo "$finding" | sed -n 's/.*"recommendation":"\([^"]*\)".*/\1/p' | head -1)
+            echo "- **Backup (Time Machine):** $value - $details"
+            if [[ -n "$recommendation" ]]; then
+                echo "  - Action: $recommendation"
+            fi
+            backup_found=true
+            break
+        fi
+    done
+
+    echo ""
+}
+
+generate_security_analysis() {
+    cat << EOF
+## Security Analysis
+
+EOF
+
+    # High-risk ports - show once at top, no duplicates
+    for finding in "${ALL_FINDINGS[@]}"; do
+        local item=$(echo "$finding" | sed -n 's/.*"item":"\([^"]*\)".*/\1/p' | head -1)
+        local risk_level=$(echo "$finding" | sed -n 's/.*"risk_level":"\([^"]*\)".*/\1/p' | head -1)
+        if [[ "$item" == "High-Risk Listening Ports" ]]; then
+            local value=$(echo "$finding" | sed -n 's/.*"value":"\([^"]*\)".*/\1/p' | head -1)
+            local details=$(echo "$finding" | sed -n 's/.*"details":"\([^"]*\)".*/\1/p' | head -1)
+            local recommendation=$(echo "$finding" | sed -n 's/.*"recommendation":"\([^"]*\)".*/\1/p' | head -1)
+            echo "- **Risky Network Ports:** $value - $details"
+            if [[ -n "$recommendation" ]]; then
+                echo "  - Action: $recommendation"
+            fi
+            break
+        fi
+    done
+
+    # Network services - combine listening services with actual port details
+    local listening_count=""
+    for finding in "${ALL_FINDINGS[@]}"; do
+        local item=$(echo "$finding" | sed -n 's/.*"item":"\([^"]*\)".*/\1/p' | head -1)
+        if [[ "$item" == "Listening Services" ]]; then
+            local value=$(echo "$finding" | sed -n 's/.*"value":"\([^"]*\)".*/\1/p' | head -1)
+            listening_count="$value"
+            break
+        fi
+    done
+
+    # Show specific ports found
+    local port_details=""
+    for finding in "${ALL_FINDINGS[@]}"; do
+        local item=$(echo "$finding" | sed -n 's/.*"item":"\([^"]*\)".*/\1/p' | head -1)
+        if [[ "$item" =~ "Port " ]]; then
+            local details=$(echo "$finding" | sed -n 's/.*"details":"\([^"]*\)".*/\1/p' | head -1)
+            if [[ -n "$port_details" ]]; then
+                port_details="$port_details, $details"
+            else
+                port_details="$details"
+            fi
+        fi
+    done
+
+    if [[ -n "$listening_count" ]]; then
+        echo "- **Network Services:** $listening_count"
+        if [[ -n "$port_details" ]]; then
+            echo "  - Active: $port_details"
+        fi
+    fi
+
+    # Remote access software
+    for finding in "${ALL_FINDINGS[@]}"; do
+        local item=$(echo "$finding" | sed -n 's/.*"item":"\([^"]*\)".*/\1/p' | head -1)
+        local risk_level=$(echo "$finding" | sed -n 's/.*"risk_level":"\([^"]*\)".*/\1/p' | head -1)
+        if [[ "$item" == "Remote Access Software" ]]; then
+            local value=$(echo "$finding" | sed -n 's/.*"value":"\([^"]*\)".*/\1/p' | head -1)
+            local details=$(echo "$finding" | sed -n 's/.*"details":"\([^"]*\)".*/\1/p' | head -1)
+            local recommendation=$(echo "$finding" | sed -n 's/.*"recommendation":"\([^"]*\)".*/\1/p' | head -1)
+            echo "- **Remote Access Tools:** $value - $details"
+            if [[ -n "$recommendation" ]]; then
+                echo "  - Action: $recommendation"
+            fi
+            break
+        fi
+    done
+
+    # Antivirus/Antimalware detection
+    for finding in "${ALL_FINDINGS[@]}"; do
+        local item=$(echo "$finding" | sed -n 's/.*"item":"\([^"]*\)".*/\1/p' | head -1)
+        if [[ "$item" == "Third-party Antivirus" ]]; then
+            local value=$(echo "$finding" | sed -n 's/.*"value":"\([^"]*\)".*/\1/p' | head -1)
+            local details=$(echo "$finding" | sed -n 's/.*"details":"\([^"]*\)".*/\1/p' | head -1)
+            echo "- **Antivirus Protection:** $value - $details"
+            break
+        fi
+    done
+
+    # RMM/Remote Management Tools
+    for finding in "${ALL_FINDINGS[@]}"; do
+        local item=$(echo "$finding" | sed -n 's/.*"item":"\([^"]*\)".*/\1/p' | head -1)
+        if [[ "$item" == "RMM Tools" || "$item" == "Remote Management" ]]; then
+            local value=$(echo "$finding" | sed -n 's/.*"value":"\([^"]*\)".*/\1/p' | head -1)
+            local details=$(echo "$finding" | sed -n 's/.*"details":"\([^"]*\)".*/\1/p' | head -1)
+            local recommendation=$(echo "$finding" | sed -n 's/.*"recommendation":"\([^"]*\)".*/\1/p' | head -1)
+            echo "- **RMM Tools:** $value - $details"
+            if [[ -n "$recommendation" ]]; then
+                echo "  - Action: $recommendation"
+            fi
+            break
+        fi
+    done
+
+    # iCloud Status
+    for finding in "${ALL_FINDINGS[@]}"; do
+        local item=$(echo "$finding" | sed -n 's/.*"item":"\([^"]*\)".*/\1/p' | head -1)
+        if [[ "$item" == "iCloud Status" ]]; then
+            local value=$(echo "$finding" | sed -n 's/.*"value":"\([^"]*\)".*/\1/p' | head -1)
+            local details=$(echo "$finding" | sed -n 's/.*"details":"\([^"]*\)".*/\1/p' | head -1)
+            echo "- **iCloud Status:** $value - $details"
+            break
+        fi
+    done
+
+    # Find My Status
+    for finding in "${ALL_FINDINGS[@]}"; do
+        local item=$(echo "$finding" | sed -n 's/.*"item":"\([^"]*\)".*/\1/p' | head -1)
+        if [[ "$item" == "Find My" ]]; then
+            local value=$(echo "$finding" | sed -n 's/.*"value":"\([^"]*\)".*/\1/p' | head -1)
+            local details=$(echo "$finding" | sed -n 's/.*"details":"\([^"]*\)".*/\1/p' | head -1)
+            echo "- **Find My:** $value - $details"
+            break
+        fi
+    done
+
+    # WiFi security concerns
+    for finding in "${ALL_FINDINGS[@]}"; do
+        local item=$(echo "$finding" | sed -n 's/.*"item":"\([^"]*\)".*/\1/p' | head -1)
+        local risk_level=$(echo "$finding" | sed -n 's/.*"risk_level":"\([^"]*\)".*/\1/p' | head -1)
+        if [[ "$item" == "Saved Wi-Fi Networks" && "$risk_level" == "LOW" ]]; then
+            local value=$(echo "$finding" | sed -n 's/.*"value":"\([^"]*\)".*/\1/p' | head -1)
+            local recommendation=$(echo "$finding" | sed -n 's/.*"recommendation":"\([^"]*\)".*/\1/p' | head -1)
+            echo "- **WiFi Security:** $value saved networks"
+            if [[ -n "$recommendation" ]]; then
+                echo "  - Action: $recommendation"
+            fi
+            break
+        fi
+    done
+
+    echo ""
+}
+
+generate_software_inventory() {
+    cat << EOF
+## Software Inventory
+
+EOF
+
+    # Application count
+    for finding in "${ALL_FINDINGS[@]}"; do
+        local item=$(echo "$finding" | sed -n 's/.*"item":"\([^"]*\)".*/\1/p' | head -1)
+        if [[ "$item" == "Total Installed Applications" ]]; then
+            local value=$(echo "$finding" | sed -n 's/.*"value":"\([^"]*\)".*/\1/p' | head -1)
+            local details=$(echo "$finding" | sed -n 's/.*"details":"\([^"]*\)".*/\1/p' | head -1)
+            echo "- **Installed Applications:** $value - $details"
+            break
+        fi
+    done
+
+    # Key applications - show only the important ones
+    local key_apps=("Zoom" "Microsoft Office" "Visual Studio Code" "Docker Desktop" "Safari Browser")
+    for app in "${key_apps[@]}"; do
+        for finding in "${ALL_FINDINGS[@]}"; do
+            local item=$(echo "$finding" | sed -n 's/.*"item":"\([^"]*\)".*/\1/p' | head -1)
+            if [[ "$item" == "$app" ]]; then
+                local value=$(echo "$finding" | sed -n 's/.*"value":"\([^"]*\)".*/\1/p' | head -1)
+                local details=$(echo "$finding" | sed -n 's/.*"details":"\([^"]*\)".*/\1/p' | head -1)
+                echo "- **$app:** $value"
+                break
+            fi
+        done
+    done
+
+    # Development tools summary
+    for finding in "${ALL_FINDINGS[@]}"; do
+        local item=$(echo "$finding" | sed -n 's/.*"item":"\([^"]*\)".*/\1/p' | head -1)
+        if [[ "$item" == "Development Tools" ]]; then
+            local value=$(echo "$finding" | sed -n 's/.*"value":"\([^"]*\)".*/\1/p' | head -1)
+            local details=$(echo "$finding" | sed -n 's/.*"details":"\([^"]*\)".*/\1/p' | head -1)
+            echo "- **Development Tools:** $value - $details"
+            break
+        fi
+    done
+
+    echo ""
+}
+
+# Old process section function removed - replaced by integrated system resources section
+
+generate_memory_section() {
+    cat << EOF
+## Memory Analysis
+
+EOF
+
+    # Get memory-related findings
+    local memory_items=("Memory Usage" "Top 5 Process Memory Usage" "Memory Pressure")
+
+    for memory_item in "${memory_items[@]}"; do
+        for finding in "${ALL_FINDINGS[@]}"; do
+            local item=$(echo "$finding" | sed -n 's/.*"item":"\([^"]*\)".*/\1/p' | head -1)
+            local risk_level=$(echo "$finding" | sed -n 's/.*"risk_level":"\([^"]*\)".*/\1/p' | head -1)
+
+            if [[ "$item" == "$memory_item" ]]; then
+                local value=$(echo "$finding" | sed -n 's/.*"value":"\([^"]*\)".*/\1/p' | head -1)
+                local details=$(echo "$finding" | sed -n 's/.*"details":"\([^"]*\)".*/\1/p' | head -1)
+                local recommendation=$(echo "$finding" | sed -n 's/.*"recommendation":"\([^"]*\)".*/\1/p' | head -1)
+
+                [[ -z "$value" ]] && value="Unknown"
+                [[ -z "$risk_level" ]] && risk_level="INFO"
+
+                local risk_icon="[INFO]"
+                [[ "$risk_level" == "LOW" ]] && risk_icon="[LOW]"
+                [[ "$risk_level" == "MEDIUM" ]] && risk_icon="[MEDIUM]"
+                [[ "$risk_level" == "HIGH" ]] && risk_icon="[HIGH]"
+
+                cat << EOF
+- **$risk_icon $item:** $value
+  - Details: $details
+EOF
+                if [[ -n "$recommendation" ]]; then
+                    cat << EOF
+  - Recommendation: $recommendation
+EOF
+                fi
+                echo ""
+                break
+            fi
+        done
+    done
+}
+
+generate_disk_section() {
+    cat << EOF
+## Disk Analysis
+
+EOF
+
+    # Get disk-related findings - pattern match for disk usage items
+    for finding in "${ALL_FINDINGS[@]}"; do
+        local category=$(echo "$finding" | sed -n 's/.*"category":"\([^"]*\)".*/\1/p' | head -1)
+        local item=$(echo "$finding" | sed -n 's/.*"item":"\([^"]*\)".*/\1/p' | head -1)
+        local risk_level=$(echo "$finding" | sed -n 's/.*"risk_level":"\([^"]*\)".*/\1/p' | head -1)
+
+        # Include Storage category and disk-related items, but exclude individual directory listings
+        if [[ ("$category" == "Storage" || "$item" =~ "Disk") && ! "$item" =~ "Directory:" ]]; then
+            local value=$(echo "$finding" | sed -n 's/.*"value":"\([^"]*\)".*/\1/p' | head -1)
+            local details=$(echo "$finding" | sed -n 's/.*"details":"\([^"]*\)".*/\1/p' | head -1)
+            local recommendation=$(echo "$finding" | sed -n 's/.*"recommendation":"\([^"]*\)".*/\1/p' | head -1)
+
+            [[ -z "$value" ]] && value="Unknown"
+            [[ -z "$risk_level" ]] && risk_level="INFO"
+
+            local risk_icon="[INFO]"
+            [[ "$risk_level" == "LOW" ]] && risk_icon="[LOW]"
+            [[ "$risk_level" == "MEDIUM" ]] && risk_icon="[MEDIUM]"
+            [[ "$risk_level" == "HIGH" ]] && risk_icon="[HIGH]"
+
+            cat << EOF
+- **$risk_icon $item:** $value
+  - Details: $details
+EOF
+            if [[ -n "$recommendation" ]]; then
+                cat << EOF
+  - Recommendation: $recommendation
+EOF
+            fi
+            echo ""
+        fi
+    done
+}
+
+generate_network_section() {
+    cat << EOF
+## Network Analysis
+
+EOF
+
+    # Get network-related findings
+    local network_items=("High-Risk Listening Ports" "Active Interfaces" "Primary IP Address" "Wi-Fi Status" "Saved Wi-Fi Networks" "DNS Servers" "Listening Services" "Sharing Services" "VPN Configuration")
+
+    for network_item in "${network_items[@]}"; do
+        for finding in "${ALL_FINDINGS[@]}"; do
+            local item=$(echo "$finding" | sed -n 's/.*"item":"\([^"]*\)".*/\1/p' | head -1)
+            local risk_level=$(echo "$finding" | sed -n 's/.*"risk_level":"\([^"]*\)".*/\1/p' | head -1)
+
+            if [[ "$item" == "$network_item" ]]; then
+                local value=$(echo "$finding" | sed -n 's/.*"value":"\([^"]*\)".*/\1/p' | head -1)
+                local details=$(echo "$finding" | sed -n 's/.*"details":"\([^"]*\)".*/\1/p' | head -1)
+                local recommendation=$(echo "$finding" | sed -n 's/.*"recommendation":"\([^"]*\)".*/\1/p' | head -1)
+
+                [[ -z "$value" ]] && value="Unknown"
+                [[ -z "$risk_level" ]] && risk_level="INFO"
+
+                local risk_icon="[INFO]"
+                [[ "$risk_level" == "LOW" ]] && risk_icon="[LOW]"
+                [[ "$risk_level" == "MEDIUM" ]] && risk_icon="[MEDIUM]"
+                [[ "$risk_level" == "HIGH" ]] && risk_icon="[HIGH]"
+
+                cat << EOF
+- **$risk_icon $item:** $value
+  - Details: $details
+EOF
+                if [[ -n "$recommendation" ]]; then
+                    cat << EOF
+  - Recommendation: $recommendation
+EOF
+                fi
+                echo ""
+                break
+            fi
+        done
+    done
+
+    # Also include specific port findings that might not match the standard items
+    for finding in "${ALL_FINDINGS[@]}"; do
+        local item=$(echo "$finding" | sed -n 's/.*"item":"\([^"]*\)".*/\1/p' | head -1)
+        local category=$(echo "$finding" | sed -n 's/.*"category":"\([^"]*\)".*/\1/p' | head -1)
+
+        # Include port findings
+        if [[ "$item" =~ "Port " && "$category" == "Network" ]]; then
+            local value=$(echo "$finding" | sed -n 's/.*"value":"\([^"]*\)".*/\1/p' | head -1)
+            local details=$(echo "$finding" | sed -n 's/.*"details":"\([^"]*\)".*/\1/p' | head -1)
+            local risk_level=$(echo "$finding" | sed -n 's/.*"risk_level":"\([^"]*\)".*/\1/p' | head -1)
+
+            [[ -z "$value" ]] && value="Unknown"
+            [[ -z "$risk_level" ]] && risk_level="INFO"
+
+            local risk_icon="[INFO]"
+            [[ "$risk_level" == "LOW" ]] && risk_icon="[LOW]"
+            [[ "$risk_level" == "MEDIUM" ]] && risk_icon="[MEDIUM]"
+            [[ "$risk_level" == "HIGH" ]] && risk_icon="[HIGH]"
+
+            cat << EOF
+- **$risk_icon $item:** $value
+  - Details: $details
+EOF
+            echo ""
+        fi
+    done
+}
+
+generate_recommendations() {
+    # Collect only LOW risk recommendations that aren't already in Critical Action Items
+    local recommendations=()
+    local rec_counts=()
+
+    # Skip only inappropriate recommendations - let the logic determine what to show based on actual status
+    local skip_recommendations=(
+        "1 network printers detected. Ensure they are on trusted networks and use secure protocols"
+        "Evaluate enterprise security solutions such as CrowdStrike, SentinelOne, or Jamf Protect for comprehensive threat detection"
+        "Review remote access software for security and business justification"
+        "Time Machine is configured but no backups have completed. Verify backup destination is accessible"
+        "Review listening services for security implications. Disable unnecessary services"
+        "Disk space is getting low. Monitor usage and consider cleanup"
+        "Backup solutions detected - verify they are configured and running properly"
+        "Consider signing into iCloud for backup and device synchronization"
+        "Sign into iCloud and enable backup for data protection"
+        "Enable Find My for device security and theft protection"
+        "Sign into iCloud to enable Find My"
+    )
+
+    for finding in "${ALL_FINDINGS[@]}"; do
+        local recommendation=$(echo "$finding" | sed -n 's/.*"recommendation":"\([^"]*\)".*/\1/p' | head -1)
+        local risk_level=$(echo "$finding" | sed -n 's/.*"risk_level":"\([^"]*\)".*/\1/p' | head -1)
+
+        if [[ -n "$recommendation" && "$recommendation" != "" && "$risk_level" == "LOW" ]]; then
+            # Check if this recommendation should be skipped
+            local should_skip=false
+            for skip_rec in "${skip_recommendations[@]}"; do
+                if [[ "$recommendation" == "$skip_rec" ]]; then
+                    should_skip=true
+                    break
+                fi
+            done
+
+            if [[ "$should_skip" == false ]]; then
+                # Check if this recommendation already exists
+                local rec_exists=false
+                local rec_index=0
+
+                for i in "${!recommendations[@]}"; do
+                    if [[ "${recommendations[$i]}" == "$recommendation" ]]; then
+                        rec_exists=true
+                        rec_index=$i
+                        break
+                    fi
+                done
+
+                if [[ "$rec_exists" == true ]]; then
+                    # Increment count
+                    rec_counts[$rec_index]=$((${rec_counts[$rec_index]} + 1))
+                else
+                    # Add new recommendation
+                    recommendations+=("$recommendation")
+                    rec_counts+=(1)
+                fi
+            fi
+        fi
+    done
+
+    if [[ ${#recommendations[@]} -gt 0 ]]; then
+        cat << EOF
+## Additional Recommendations
+
+EOF
+
+        for i in "${!recommendations[@]}"; do
+            cat << EOF
+- **${recommendations[$i]}**
+
+EOF
+        done
+    fi
+}
+
+generate_markdown_footer() {
+    cat << EOF
+---
+
+*This report was generated by macOS Workstation Auditor v$CONFIG_VERSION*
+
+*For detailed data analysis and aggregation, refer to the corresponding JSON export.*
+
+EOF
+}
+
+# Main report export functions called by the main script
+export_reports() {
+    log_message "INFO" "Starting report generation..." "REPORT"
+
+    # Collect findings once from all modules
+    collect_all_findings
+
+    # Generate both report formats using the same data
+    export_markdown_report
+    export_raw_data_json
+
+    log_message "SUCCESS" "All reports generated successfully" "REPORT"
+}
+
+# === MAIN SCRIPT LOGIC (MODIFIED FOR WEB DEPLOYMENT) ===
 
 # Override load_module function for web version (modules already embedded)
 load_module() {

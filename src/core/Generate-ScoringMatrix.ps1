@@ -34,7 +34,7 @@ function Generate-ScoringMatrix {
         SectionCriticality = "High"
         ClientAdherence = $NetworkAdherence
         Overview = "Network security, firewall configuration, and infrastructure hardening"
-        Details = if ($NetworkRisks.Count -gt 0) { "Issues found: $($NetworkRisks.Count) network risks identified" } else { "Network infrastructure appears well-configured" }
+        Details = if ($NetworkRisks.Count -gt 0) { "Issues found: $($NetworkRisks.Count) network risks identified" } else { "$($NetworkFindings.Count) network findings assessed, no high/medium risks" }
     }
     
     # Desktop/User Infrastructure Component  
@@ -48,8 +48,8 @@ function Generate-ScoringMatrix {
         SectionCriticality = "High"
         ClientAdherence = $UserAdherence
         Overview = "User account management, administrative privileges, and access control"
-        Details = if ($AdminIssues.Count -gt 0) { "Administrator account issues on $($AdminIssues.Count) systems" } 
-                  else { "User account configurations meet security standards" }
+        Details = if ($AdminIssues.Count -gt 0) { "Administrator account issues on $($AdminIssues.Count) systems" }
+                  else { "$($UserFindings.Count) user account findings assessed, no high/medium risks" }
     }
     
     # Security Component
@@ -64,7 +64,7 @@ function Generate-ScoringMatrix {
         ClientAdherence = $SecurityAdherence
         Overview = "Antivirus protection, security software, and threat detection capabilities"
         Details = if ($AntivirusIssues.Count -gt 0) { "Antivirus configuration requires attention" }
-                  else { "Security controls properly implemented" }
+                  else { "$($SecurityFindings.Count) security findings assessed, no high/medium risks" }
     }
     
     # Patch Management Component
@@ -78,7 +78,7 @@ function Generate-ScoringMatrix {
         ClientAdherence = $PatchAdherence  
         Overview = "Operating system updates, security patches, and software currency"
         Details = if ($PatchRisks.Count -gt 0) { "$($PatchRisks.Count) systems need critical updates" }
-                  else { "Systems are current with security updates" }
+                  else { "$($PatchFindings.Count) patch findings assessed, no high/medium risks" }
     }
     
     # Management Infrastructure Component

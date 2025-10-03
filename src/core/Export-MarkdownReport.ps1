@@ -88,6 +88,59 @@ function Export-MarkdownReport {
         $ReportContent += "| LOW | $($LowRisk.Count) | Monitor and Maintain |"
         $ReportContent += "| INFO | $($InfoItems.Count) | Informational |"
         $ReportContent += ""
+
+        # Security Strengths Section (GREEN indicators for positive findings)
+        if ($LowRisk.Count -gt 0 -or $InfoItems.Count -gt 0) {
+            $ReportContent += "## Security Strengths"
+            $ReportContent += ""
+            $ReportContent += "> **Positive security findings and properly configured systems**"
+            $ReportContent += ""
+
+            # Group positive findings by category
+            $PositiveFindings = $LowRisk + $InfoItems
+            $StrengthsByCategory = $PositiveFindings | Group-Object Category | Sort-Object Name
+
+            foreach ($CategoryGroup in $StrengthsByCategory) {
+                $CategoryName = $CategoryGroup.Name
+                $CategoryCount = $CategoryGroup.Count
+
+                $ReportContent += "### $CategoryName ($CategoryCount findings)"
+                $ReportContent += ""
+
+                # Show actual system findings from audit data only
+                if ($CategoryName -eq "System") {
+                    $TopFindings = $CategoryGroup.Group | Select-Object -First 3
+                    foreach ($Finding in $TopFindings) {
+                        $ReportContent += "- **$($Finding.Item)**: $($Finding.Details)"
+                    }
+                }
+                elseif ($CategoryName -eq "Patching") {
+                    # Show actual patching findings from audit data only
+                    $TopFindings = $CategoryGroup.Group | Select-Object -First 3
+                    foreach ($Finding in $TopFindings) {
+                        $ReportContent += "- **$($Finding.Item)**: $($Finding.Details)"
+                    }
+                }
+                elseif ($CategoryName -eq "Dark Web Analysis") {
+                    # Show actual dark web findings from audit data only
+                    $TopFindings = $CategoryGroup.Group | Select-Object -First 3
+                    foreach ($Finding in $TopFindings) {
+                        $ReportContent += "- **$($Finding.Item)**: $($Finding.Details)"
+                    }
+                }
+                else {
+                    # Show top 3 positive findings for other categories
+                    $TopFindings = $CategoryGroup.Group | Select-Object -First 3
+                    foreach ($Finding in $TopFindings) {
+                        $ReportContent += "- **$($Finding.Item)**: $($Finding.Details)"
+                    }
+                }
+                $ReportContent += ""
+            }
+
+            $ReportContent += "---"
+            $ReportContent += ""
+        }
         
         # Critical Action Items
         if ($HighRisk.Count -gt 0 -or $MediumRisk.Count -gt 0) {
