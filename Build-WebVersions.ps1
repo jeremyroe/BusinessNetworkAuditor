@@ -119,7 +119,11 @@ $ConfigContent
 '@
 
 # Global variables
-`$Script:OutputPath = if (`$OutputPath) { `$OutputPath } else { "`$env:USERPROFILE\WindowsAudit" }
+if (-not `$OutputPath -or [string]::IsNullOrWhiteSpace(`$OutputPath)) {
+    `$Script:OutputPath = "`$env:USERPROFILE\WindowsAudit"
+} else {
+    `$Script:OutputPath = `$OutputPath
+}
 `$Script:LogFile = ""
 `$Script:StartTime = Get-Date
 `$Script:ComputerName = `$env:COMPUTERNAME

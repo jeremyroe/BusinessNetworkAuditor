@@ -3,7 +3,7 @@
 # Platform: Windows 10/11, Windows Server 2008-2022+
 # Requires: PowerShell 5.0+
 # Usage: [Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12; iex (irm https://your-url/WindowsServerAuditor-Web.ps1)
-# Built: 2025-10-16 08:56:18
+# Built: 2025-10-16 09:15:33
 # Modules: 27 embedded modules in dependency order
 
 param(
@@ -128,7 +128,11 @@ $Script:EmbeddedConfig = @'
 '@
 
 # Global variables
-$Script:OutputPath = if ($OutputPath) { $OutputPath } else { "$env:USERPROFILE\WindowsAudit" }
+if (-not $OutputPath -or [string]::IsNullOrWhiteSpace($OutputPath)) {
+    $Script:OutputPath = "$env:USERPROFILE\WindowsAudit"
+} else {
+    $Script:OutputPath = $OutputPath
+}
 $Script:LogFile = ""
 $Script:StartTime = Get-Date
 $Script:ComputerName = $env:COMPUTERNAME
