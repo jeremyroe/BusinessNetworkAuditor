@@ -3,7 +3,7 @@
 # Platform: Windows 10/11
 # Requires: PowerShell 5.0+
 # Usage: [Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12; iex (irm https://your-url/WindowsWorkstationAuditor-Web.ps1)
-# Built: 2025-10-15 21:56:53
+# Built: 2025-10-15 22:04:26
 # Modules: 27 embedded modules in dependency order
 
 param(
@@ -8352,7 +8352,7 @@ function Start-ModularAudit {
         }
         
         # Export results
-        Export-AuditResults -Results $AllResults -Config $Config -OutputPath $OutputPath
+        Export-AuditResults -Results $AllResults -Config $Config -OutputPath $Script:OutputPath
     }
     
     $EndTime = Get-Date

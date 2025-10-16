@@ -352,7 +352,7 @@ function Start-ServerAudit {
         }
 
         # Export results
-        Export-AuditResults -Results $AllResults -Config $Config -IsServer -OutputPath $OutputPath
+        Export-AuditResults -Results $AllResults -Config $Config -IsServer -OutputPath $Script:OutputPath
     }
 
     $EndTime = Get-Date

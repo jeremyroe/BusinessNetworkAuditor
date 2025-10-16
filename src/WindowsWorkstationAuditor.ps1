@@ -364,7 +364,7 @@ function Start-ModularAudit {
         }
         
         # Export results
-        Export-AuditResults -Results $AllResults -Config $Config -OutputPath $OutputPath
+        Export-AuditResults -Results $AllResults -Config $Config -OutputPath $Script:OutputPath
     }
     
     $EndTime = Get-Date
