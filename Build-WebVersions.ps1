@@ -104,7 +104,7 @@ function Build-WindowsWebVersion {
 # Version 2.0.0 - $Type Audit Script (Manifest-Based Build)
 # Platform: Windows 10/11$(if ($Type -eq "Server") { ", Windows Server 2008-2022+" })
 # Requires: PowerShell 5.0+
-# Usage: iex (irm https://your-url/Windows${Type}Auditor-Web.ps1)
+# Usage: [Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12; iex (irm https://your-url/Windows${Type}Auditor-Web.ps1)
 # Built: $(Get-Date -Format "yyyy-MM-dd HH:mm:ss")
 # Modules: $($OrderedModules.Count) embedded modules in dependency order
 
@@ -112,13 +112,6 @@ param(
     [string]`$OutputPath = "`$env:USERPROFILE\WindowsAudit",
     [switch]`$Verbose
 )
-
-# Enable TLS 1.2 for older PowerShell versions (Windows Server 2008-2012 compatibility)
-try {
-    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-} catch {
-    Write-Host "WARNING: Failed to enable TLS 1.2 - continuing anyway" -ForegroundColor Yellow
-}
 
 # Embedded Configuration
 `$Script:EmbeddedConfig = @'

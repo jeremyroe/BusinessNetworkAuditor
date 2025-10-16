@@ -2,21 +2,14 @@
 # Version 2.0.0 - Server Audit Script (Manifest-Based Build)
 # Platform: Windows 10/11, Windows Server 2008-2022+
 # Requires: PowerShell 5.0+
-# Usage: iex (irm https://your-url/WindowsServerAuditor-Web.ps1)
-# Built: 2025-10-15 20:30:54
+# Usage: [Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12; iex (irm https://your-url/WindowsServerAuditor-Web.ps1)
+# Built: 2025-10-15 20:35:01
 # Modules: 27 embedded modules in dependency order
 
 param(
     [string]$OutputPath = "$env:USERPROFILE\WindowsAudit",
     [switch]$Verbose
 )
-
-# Enable TLS 1.2 for older PowerShell versions (Windows Server 2008-2012 compatibility)
-try {
-    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-} catch {
-    Write-Host "WARNING: Failed to enable TLS 1.2 - continuing anyway" -ForegroundColor Yellow
-}
 
 # Embedded Configuration
 $Script:EmbeddedConfig = @'
