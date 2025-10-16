@@ -174,9 +174,9 @@ function Import-AuditData {
             
             $Result.ImportedFiles += $JsonFile.Name
             if ($IsDarkWebFile) {
-                Write-Verbose "  → Imported $($DarkWebFindings.Count) dark web findings"
+                Write-Verbose "  > Imported $($DarkWebFindings.Count) dark web findings"
             } else {
-                Write-Verbose "  → Imported $($AuditData.compliance_framework.findings.Count) findings from $($SystemInfo.ComputerName)"
+                Write-Verbose "  > Imported $($AuditData.compliance_framework.findings.Count) findings from $($SystemInfo.ComputerName)"
             }
             
         }

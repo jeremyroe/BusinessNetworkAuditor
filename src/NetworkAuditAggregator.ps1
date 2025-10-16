@@ -71,8 +71,8 @@ try {
         exit 1
     }
     
-    Write-Host "  → Imported $($ImportResult.SystemCount) systems"
-    Write-Host "  → Total findings: $($ImportResult.FindingCount)" 
+    Write-Host "  > Imported $($ImportResult.SystemCount) systems"
+    Write-Host "  > Total findings: $($ImportResult.FindingCount)" 
     
     Write-Host "`nStep 2: Generating executive summary..." -ForegroundColor Cyan
     $ExecutiveSummary = Generate-ExecutiveSummary -ImportedData $ImportResult -ClientName $ClientName
@@ -87,12 +87,12 @@ try {
     $ReportPath = Export-ClientReport -ExecutiveSummary $ExecutiveSummary -ScoringMatrix $ScoringMatrix -RiskAnalysis $RiskAnalysis -OutputPath $OutputPath -ClientName $ClientName
     
     $Duration = (Get-Date) - $Script:StartTime
-    Write-Host "`n✓ Report generation completed in $([math]::Round($Duration.TotalSeconds, 1))s" -ForegroundColor Green
-    Write-Host "  → Output: $ReportPath"
+    Write-Host "`nReport generation completed in $([math]::Round($Duration.TotalSeconds, 1))s" -ForegroundColor Green
+    Write-Host "  > Output: $ReportPath"
     
     # Open the report
     if (Test-Path $ReportPath) {
-        Write-Host "  → Opening report..." -ForegroundColor Gray
+        Write-Host "  > Opening report..." -ForegroundColor Gray
         if ($IsWindows -or ($PSVersionTable.PSVersion.Major -lt 6)) {
             Start-Process $ReportPath
         } else {
