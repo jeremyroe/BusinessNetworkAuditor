@@ -3,7 +3,7 @@
 # Platform: Windows 10/11, Windows Server 2008-2022+
 # Requires: PowerShell 5.0+
 # Usage: [Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12; iex (irm https://your-url/WindowsServerAuditor-Web.ps1)
-# Built: 2025-10-15 21:26:06
+# Built: 2025-10-15 21:44:11
 # Modules: 27 embedded modules in dependency order
 
 param(
@@ -2898,12 +2898,13 @@ function Get-PatchStatus {
         # Install PSWindowsUpdate if needed - handle NuGet prompts automatically
         $PSWUAvailable = $false
         try {
-            # SYSTEM user fix: Add SYSTEM profile module path if not already present
-            if ($env:USERNAME -eq "SYSTEM") {
+            # SYSTEM/Service account fix: Add system profile module path if not already present
+            # This applies to SYSTEM account and computer accounts (ending with $)
+            if ($env:USERNAME -eq "SYSTEM" -or $env:USERNAME -like "*$") {
                 $SystemModulePath = "$env:SystemRoot\system32\config\systemprofile\Documents\WindowsPowerShell\Modules"
                 if ($env:PSModulePath -notlike "*$SystemModulePath*") {
                     $env:PSModulePath = "$env:PSModulePath;$SystemModulePath"
-                    Write-LogMessage "INFO" "Added SYSTEM profile module path to PSModulePath" "PATCHES"
+                    Write-LogMessage "INFO" "Added system profile module path to PSModulePath for account: $env:USERNAME" "PATCHES"
                 }
             }
 
@@ -2913,8 +2914,8 @@ function Get-PatchStatus {
                 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
                 # Install NuGet provider automatically to avoid prompts
-                # Use AllUsers scope if running as SYSTEM, CurrentUser otherwise
-                $InstallScope = if ($env:USERNAME -eq "SYSTEM") { "AllUsers" } else { "CurrentUser" }
+                # Use AllUsers scope if running as SYSTEM or computer account, CurrentUser otherwise
+                $InstallScope = if ($env:USERNAME -eq "SYSTEM" -or $env:USERNAME -like "*$") { "AllUsers" } else { "CurrentUser" }
                 Write-LogMessage "INFO" "Installing NuGet and PSWindowsUpdate with scope: $InstallScope" "PATCHES"
 
                 Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 -Force -Scope $InstallScope
@@ -8242,11 +8243,15 @@ function Export-AuditResults {
 
     .PARAMETER IsServer
         Flag indicating this is a server audit (affects report generation)
+
+    .PARAMETER OutputPath
+        Output directory path for exports
     #>
     param(
         [array]$Results,
         [object]$Config,
-        [switch]$IsServer
+        [switch]$IsServer,
+        [string]$OutputPath = $Script:OutputPath
     )
 
     if (-not $Results -or $Results.Count -eq 0) {
@@ -8363,7 +8368,7 @@ function Start-ServerAudit {
         }
 
         # Export results
-        Export-AuditResults -Results $AllResults -Config $Config -IsServer
+        Export-AuditResults -Results $AllResults -Config $Config -IsServer -OutputPath $OutputPath
     }
 
     $EndTime = Get-Date

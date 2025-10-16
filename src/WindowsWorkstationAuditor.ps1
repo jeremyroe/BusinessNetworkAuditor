@@ -220,10 +220,14 @@ function Export-AuditResults {
         
     .PARAMETER Config
         Configuration object with export settings
+
+    .PARAMETER OutputPath
+        Output directory path for exports
     #>
     param(
         [array]$Results,
-        [object]$Config
+        [object]$Config,
+        [string]$OutputPath = $Script:OutputPath
     )
     
     if (-not $Results -or $Results.Count -eq 0) {
@@ -360,7 +364,7 @@ function Start-ModularAudit {
         }
         
         # Export results
-        Export-AuditResults -Results $AllResults -Config $Config
+        Export-AuditResults -Results $AllResults -Config $Config -OutputPath $OutputPath
     }
     
     $EndTime = Get-Date

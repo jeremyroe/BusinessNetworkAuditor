@@ -33,12 +33,13 @@ function Get-PatchStatus {
         # Install PSWindowsUpdate if needed - handle NuGet prompts automatically
         $PSWUAvailable = $false
         try {
-            # SYSTEM user fix: Add SYSTEM profile module path if not already present
-            if ($env:USERNAME -eq "SYSTEM") {
+            # SYSTEM/Service account fix: Add system profile module path if not already present
+            # This applies to SYSTEM account and computer accounts (ending with $)
+            if ($env:USERNAME -eq "SYSTEM" -or $env:USERNAME -like "*$") {
                 $SystemModulePath = "$env:SystemRoot\system32\config\systemprofile\Documents\WindowsPowerShell\Modules"
                 if ($env:PSModulePath -notlike "*$SystemModulePath*") {
                     $env:PSModulePath = "$env:PSModulePath;$SystemModulePath"
-                    Write-LogMessage "INFO" "Added SYSTEM profile module path to PSModulePath" "PATCHES"
+                    Write-LogMessage "INFO" "Added system profile module path to PSModulePath for account: $env:USERNAME" "PATCHES"
                 }
             }
 
@@ -48,8 +49,8 @@ function Get-PatchStatus {
                 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
                 # Install NuGet provider automatically to avoid prompts
-                # Use AllUsers scope if running as SYSTEM, CurrentUser otherwise
-                $InstallScope = if ($env:USERNAME -eq "SYSTEM") { "AllUsers" } else { "CurrentUser" }
+                # Use AllUsers scope if running as SYSTEM or computer account, CurrentUser otherwise
+                $InstallScope = if ($env:USERNAME -eq "SYSTEM" -or $env:USERNAME -like "*$") { "AllUsers" } else { "CurrentUser" }
                 Write-LogMessage "INFO" "Installing NuGet and PSWindowsUpdate with scope: $InstallScope" "PATCHES"
 
                 Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 -Force -Scope $InstallScope

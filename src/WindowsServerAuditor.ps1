@@ -227,11 +227,15 @@ function Export-AuditResults {
 
     .PARAMETER IsServer
         Flag indicating this is a server audit (affects report generation)
+
+    .PARAMETER OutputPath
+        Output directory path for exports
     #>
     param(
         [array]$Results,
         [object]$Config,
-        [switch]$IsServer
+        [switch]$IsServer,
+        [string]$OutputPath = $Script:OutputPath
     )
 
     if (-not $Results -or $Results.Count -eq 0) {
@@ -348,7 +352,7 @@ function Start-ServerAudit {
         }
 
         # Export results
-        Export-AuditResults -Results $AllResults -Config $Config -IsServer
+        Export-AuditResults -Results $AllResults -Config $Config -IsServer -OutputPath $OutputPath
     }
 
     $EndTime = Get-Date
