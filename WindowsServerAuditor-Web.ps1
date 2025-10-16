@@ -1,15 +1,22 @@
 # WindowsServerAuditor - Self-Contained Web Version
 # Version 2.0.0 - Server Audit Script (Manifest-Based Build)
-# Platform: Windows 10/11, Windows Server 2016+
+# Platform: Windows 10/11, Windows Server 2008-2022+
 # Requires: PowerShell 5.0+
 # Usage: iex (irm https://your-url/WindowsServerAuditor-Web.ps1)
-# Built: 2025-10-03 11:01:04
+# Built: 2025-10-15 19:52:39
 # Modules: 27 embedded modules in dependency order
 
 param(
     [string]$OutputPath = "$env:USERPROFILE\WindowsAudit",
     [switch]$Verbose
 )
+
+# Enable TLS 1.2 for older PowerShell versions (Windows Server 2008-2012 compatibility)
+try {
+    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+} catch {
+    Write-Host "WARNING: Failed to enable TLS 1.2 - continuing anyway" -ForegroundColor Yellow
+}
 
 # Embedded Configuration
 $Script:EmbeddedConfig = @'
@@ -8089,34 +8096,6 @@ if (-not (Test-Path $OutputPath)) {
     }
 }
 
-# Load core functions
-Write-Host "Loading core functions..." -ForegroundColor Yellow
-
-$CoreModules = @(
-    "Write-LogMessage",
-    "Initialize-Logging", 
-    "Export-MarkdownReport",
-    "Export-RawDataJSON"
-)
-
-foreach ($CoreModule in $CoreModules) {
-    $CoreModuleFile = ".\src\core\$CoreModule.ps1"
-    if (Test-Path $CoreModuleFile) {
-        try {
-            . $CoreModuleFile
-            Write-Host "  [OK] Loaded $CoreModule" -ForegroundColor Green
-        }
-        catch {
-            Write-Host "  [ERROR] Failed to load $CoreModule : $($_.Exception.Message)" -ForegroundColor Red
-            exit 1
-        }
-    } else {
-        Write-Host "  [ERROR] Core module not found: $CoreModuleFile" -ForegroundColor Red
-        exit 1
-    }
-}
-
-# Initialize logging
 if (-not (Initialize-Logging -LogDirectory (Join-Path $OutputPath "logs") -LogFileName "${Script:BaseFileName}_server_audit.log")) {
     Write-Host "ERROR: Failed to initialize logging system" -ForegroundColor Red
     exit 1

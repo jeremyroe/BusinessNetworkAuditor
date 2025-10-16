@@ -102,7 +102,7 @@ function Build-WindowsWebVersion {
     $WebScript = @"
 # Windows${Type}Auditor - Self-Contained Web Version
 # Version 2.0.0 - $Type Audit Script (Manifest-Based Build)
-# Platform: Windows 10/11$(if ($Type -eq "Server") { ", Windows Server 2016+" })
+# Platform: Windows 10/11$(if ($Type -eq "Server") { ", Windows Server 2008-2022+" })
 # Requires: PowerShell 5.0+
 # Usage: iex (irm https://your-url/Windows${Type}Auditor-Web.ps1)
 # Built: $(Get-Date -Format "yyyy-MM-dd HH:mm:ss")
@@ -112,6 +112,13 @@ param(
     [string]`$OutputPath = "`$env:USERPROFILE\WindowsAudit",
     [switch]`$Verbose
 )
+
+# Enable TLS 1.2 for older PowerShell versions (Windows Server 2008-2012 compatibility)
+try {
+    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+} catch {
+    Write-Host "WARNING: Failed to enable TLS 1.2 - continuing anyway" -ForegroundColor Yellow
+}
 
 # Embedded Configuration
 `$Script:EmbeddedConfig = @'
@@ -152,6 +159,7 @@ if (-not (Test-Path `$OutputPath)) {
     # Add main script logic (excluding param block and module imports)
     $MainScriptLines = $MainScript -split "`n"
     $InParamBlock = $false
+    $InModuleLoadBlock = $false
 
     $WebScript += "`n# === MAIN SCRIPT LOGIC ===`n"
 
@@ -169,6 +177,22 @@ if (-not (Test-Path `$OutputPath)) {
         }
         if ($Line -match "^\s*\.\s+.*\.ps1") {
             # Skip module import lines since modules are embedded
+            continue
+        }
+
+        # Skip module loading block that loads from .\src\core\
+        if ($Line -match "^\s*#\s*Load core (functions|modules)" -or $Line -match "^\s*\`$CoreModules\s*=") {
+            $InModuleLoadBlock = $true
+            continue
+        }
+        if ($InModuleLoadBlock) {
+            # Stay in block until we hit Initialize-Logging call
+            if ($Line -match "^if.*Initialize-Logging") {
+                $InModuleLoadBlock = $false
+                # Include this line since modules are already embedded
+                $WebScript += $Line + "`n"
+                continue
+            }
             continue
         }
 
