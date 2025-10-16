@@ -151,7 +151,8 @@ if (-not (Test-Path `$OutputPath)) {
 
     # Add main script logic (excluding param block and module imports)
     $MainScriptLines = $MainScript -split "`n"
-    $SkipUntilBanner = $true
+    $InParamBlock = $false
+    $InHeaderComments = $true
     $InModuleLoadBlock = $false
     $InConfigLoadBlock = $false
 
@@ -166,12 +167,24 @@ if (-not (Test-Path `$OutputPath)) {
     $WebScript += "}`n`n"
 
     foreach ($Line in $MainScriptLines) {
-        # Skip everything until we hit the script entry point
-        if ($SkipUntilBanner) {
-            if ($Line -match "^#\s*Script entry point") {
-                $SkipUntilBanner = $false
-                $WebScript += $Line + "`n"
+        # Skip header comments at the top
+        if ($InHeaderComments) {
+            if ($Line -match "^param\(" -or $Line -match "^#\s*Global variables" -or $Line -match "^#\s*Module loading") {
+                $InHeaderComments = $false
+                # Continue processing this line below
+            } else {
                 continue
+            }
+        }
+
+        # Skip param block
+        if ($Line -match "^param\(") {
+            $InParamBlock = $true
+            continue
+        }
+        if ($InParamBlock) {
+            if ($Line -match "^\)") {
+                $InParamBlock = $false
             }
             continue
         }
@@ -180,8 +193,8 @@ if (-not (Test-Path `$OutputPath)) {
             continue
         }
 
-        # Skip core module loading block (dot-source imports of core modules)
-        if ($Line -match "^\s*#\s*Load core (functions|modules)" -or $Line -match "^\s*\`$CoreModules\s*=") {
+        # Skip core module loading block (dot-source imports of core modules) - only at script level, not in functions
+        if ($Line -match "^\s*#\s*Load core modules at script level") {
             $InModuleLoadBlock = $true
             continue
         }
@@ -203,23 +216,11 @@ if (-not (Test-Path `$OutputPath)) {
             }
         }
 
-        # Skip external config file loading block (but keep $ServerAuditModules)
-        if ($Line -match "^\s*#\s*Load configuration") {
-            $InConfigLoadBlock = $true
-            continue
-        }
-        if ($InConfigLoadBlock -eq $true) {
-            # End at Module execution order comment or the $ServerAuditModules line
-            if ($Line -match "^#\s*Module execution order" -or $Line -match "^\`$ServerAuditModules\s*=") {
-                $InConfigLoadBlock = $false
-                $WebScript += $Line + "`n"
-                continue
-            }
-            continue
-        }
+        # Don't filter config loading - we removed those sections from the refactored version
+        # The functions handle config internally and don't need external file loading
 
-        # Skip audit module file loading block (the foreach that loads from .\src\modules)
-        if ($Line -match "^\s*#\s*Load all audit modules") {
+        # Skip audit module file loading block (the foreach that loads from .\src\modules) - only at script level
+        if ($Line -match "^\s*#\s*Load all audit modules at script level") {
             $InModuleLoadBlock = 2  # Use different value to avoid conflict
             continue
         }
