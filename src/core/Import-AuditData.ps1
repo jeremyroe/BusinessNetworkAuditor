@@ -206,22 +206,33 @@ function Import-AuditData {
                                     continue
                                 }
 
-                                $EnrichedFinding = [PSCustomObject]@{
-                                    Category = if ($Finding.category) { [string]$Finding.category } else { [string]$CategoryName }
-                                    Item = if ($Finding.item_name) { [string]$Finding.item_name } else { "Unknown" }
-                                    Value = if ($Finding.value) { [string]$Finding.value } else { "" }
-                                    Details = if ($Finding.details) { [string]$Finding.details } else { "No details available" }
-                                    RiskLevel = if ($Finding.risk_level) { [string]$Finding.risk_level } else { "INFO" }
-                                    Recommendation = if ($Finding.recommendation_note) { [string]$Finding.recommendation_note } else { "" }
-                                    SystemName = if ($SystemInfo.ComputerName) { [string]$SystemInfo.ComputerName } else { "Unknown" }
-                                    SystemType = if ($SystemInfo.SystemType) { [string]$SystemInfo.SystemType } else { "Unknown" }
-                                    AuditDate = if ($SystemInfo.AuditTimestamp) { [string]$SystemInfo.AuditTimestamp } else { "Unknown" }
-                                    FindingId = if ($Finding.id) { [string]$Finding.id } else { "UNKNOWN-$(Get-Random)" }
-                                    Framework = "WindowsAudit"
-                                }
+                                try {
+                                    # Convert value to string safely, handling integers and nulls
+                                    $ValueString = ""
+                                    if ($null -ne $Finding.value) {
+                                        $ValueString = $Finding.value.ToString()
+                                    }
 
-                                $Result.AllFindings += $EnrichedFinding
-                                $Result.FindingCount++
+                                    $EnrichedFinding = [PSCustomObject]@{
+                                        Category = if ($Finding.category) { $Finding.category.ToString() } else { $CategoryName }
+                                        Item = $Finding.item_name.ToString()
+                                        Value = $ValueString
+                                        Details = if ($Finding.details) { $Finding.details.ToString() } else { "No details available" }
+                                        RiskLevel = if ($Finding.risk_level) { $Finding.risk_level.ToString() } else { "INFO" }
+                                        Recommendation = if ($Finding.recommendation_note) { $Finding.recommendation_note.ToString() } else { "" }
+                                        SystemName = if ($SystemInfo.ComputerName) { $SystemInfo.ComputerName.ToString() } else { "Unknown" }
+                                        SystemType = if ($SystemInfo.SystemType) { $SystemInfo.SystemType.ToString() } else { "Unknown" }
+                                        AuditDate = if ($SystemInfo.AuditTimestamp) { $SystemInfo.AuditTimestamp.ToString() } else { "Unknown" }
+                                        FindingId = if ($Finding.id) { $Finding.id.ToString() } else { "UNKNOWN-$(Get-Random)" }
+                                        Framework = "WindowsAudit"
+                                    }
+
+                                    $Result.AllFindings += $EnrichedFinding
+                                    $Result.FindingCount++
+                                } catch {
+                                    Write-Verbose "Skipping finding due to property error in $($JsonFile.Name): $($_.Exception.Message)"
+                                    continue
+                                }
                             }
                         }
                     }
