@@ -33,19 +33,28 @@ function Get-PatchStatus {
         # Install PSWindowsUpdate if needed - handle NuGet prompts automatically
         $PSWUAvailable = $false
         try {
+            # SYSTEM user fix: Add SYSTEM profile module path if not already present
+            if ($env:USERNAME -eq "SYSTEM") {
+                $SystemModulePath = "$env:SystemRoot\system32\config\systemprofile\Documents\WindowsPowerShell\Modules"
+                if ($env:PSModulePath -notlike "*$SystemModulePath*") {
+                    $env:PSModulePath = "$env:PSModulePath;$SystemModulePath"
+                    Write-LogMessage "INFO" "Added SYSTEM profile module path to PSModulePath" "PATCHES"
+                }
+            }
+
             if (-not (Get-Module -ListAvailable -Name PSWindowsUpdate)) {
                 Write-LogMessage "INFO" "Installing PSWindowsUpdate module..." "PATCHES"
                 Set-ExecutionPolicy RemoteSigned -Scope Process -Force
                 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-                
-                # Install NuGet provider automatically to avoid prompts  
+
+                # Install NuGet provider automatically to avoid prompts
                 # Use AllUsers scope if running as SYSTEM, CurrentUser otherwise
                 $InstallScope = if ($env:USERNAME -eq "SYSTEM") { "AllUsers" } else { "CurrentUser" }
                 Write-LogMessage "INFO" "Installing NuGet and PSWindowsUpdate with scope: $InstallScope" "PATCHES"
-                
+
                 Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 -Force -Scope $InstallScope
                 Set-PSRepository -Name PSGallery -InstallationPolicy Trusted
-                
+
                 Install-Module PSWindowsUpdate -Force -Scope $InstallScope -SkipPublisherCheck
             }
             Import-Module PSWindowsUpdate -Force
