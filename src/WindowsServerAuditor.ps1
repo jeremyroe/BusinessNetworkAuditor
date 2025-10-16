@@ -235,7 +235,7 @@ function Export-AuditResults {
         [array]$Results,
         [object]$Config,
         [switch]$IsServer,
-        [string]$OutputPath = $Script:OutputPath
+        [string]$OutputPath
     )
 
     if (-not $Results -or $Results.Count -eq 0) {
