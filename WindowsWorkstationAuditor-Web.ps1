@@ -3,7 +3,7 @@
 # Platform: Windows 10/11
 # Requires: PowerShell 5.0+
 # Usage: [Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12; iex (irm https://your-url/WindowsWorkstationAuditor-Web.ps1)
-# Built: 2025-10-15 22:18:36
+# Built: 2025-10-15 22:23:31
 # Modules: 27 embedded modules in dependency order
 
 param(
@@ -1232,12 +1232,17 @@ function Export-MarkdownReport {
         [string]$OutputPath,
         [string]$BaseFileName
     )
-    
+
     if (-not $Results -or $Results.Count -eq 0) {
         Write-LogMessage "WARN" "No results to export to markdown report" "EXPORT"
         return
     }
-    
+
+    if ([string]::IsNullOrWhiteSpace($OutputPath)) {
+        Write-LogMessage "ERROR" "OutputPath is null or empty - cannot create report" "EXPORT"
+        throw "OutputPath parameter is required but was null or empty"
+    }
+
     $ReportPath = Join-Path $OutputPath "${BaseFileName}_technician_report.md"
     
     try {

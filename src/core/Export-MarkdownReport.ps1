@@ -24,12 +24,17 @@ function Export-MarkdownReport {
         [string]$OutputPath,
         [string]$BaseFileName
     )
-    
+
     if (-not $Results -or $Results.Count -eq 0) {
         Write-LogMessage "WARN" "No results to export to markdown report" "EXPORT"
         return
     }
-    
+
+    if ([string]::IsNullOrWhiteSpace($OutputPath)) {
+        Write-LogMessage "ERROR" "OutputPath is null or empty - cannot create report" "EXPORT"
+        throw "OutputPath parameter is required but was null or empty"
+    }
+
     $ReportPath = Join-Path $OutputPath "${BaseFileName}_technician_report.md"
     
     try {
