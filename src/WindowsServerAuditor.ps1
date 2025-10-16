@@ -243,6 +243,19 @@ function Export-AuditResults {
         return
     }
 
+    # Validate OutputPath parameter
+    if ([string]::IsNullOrWhiteSpace($OutputPath)) {
+        Write-LogMessage "ERROR" "CRITICAL: OutputPath parameter is null or empty in Export-AuditResults" "EXPORT"
+        Write-LogMessage "ERROR" "Script:OutputPath value: '$Script:OutputPath'" "EXPORT"
+        # Fallback to script-level OutputPath
+        $OutputPath = $Script:OutputPath
+        if ([string]::IsNullOrWhiteSpace($OutputPath)) {
+            Write-LogMessage "ERROR" "CRITICAL: Script:OutputPath is also null! Using hardcoded fallback." "EXPORT"
+            $OutputPath = "C:\WindowsAudit"
+        }
+        Write-LogMessage "INFO" "Using fallback OutputPath: $OutputPath" "EXPORT"
+    }
+
     # Ensure output directory exists
     if (-not (Test-Path $OutputPath)) {
         New-Item -ItemType Directory -Path $OutputPath -Force | Out-Null

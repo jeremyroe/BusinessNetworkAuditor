@@ -3,7 +3,7 @@
 # Platform: Windows 10/11
 # Requires: PowerShell 5.0+
 # Usage: [Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12; iex (irm https://your-url/WindowsWorkstationAuditor-Web.ps1)
-# Built: 2025-10-15 22:23:31
+# Built: 2025-10-16 08:56:17
 # Modules: 27 embedded modules in dependency order
 
 param(
@@ -8228,7 +8228,20 @@ function Export-AuditResults {
         Write-LogMessage "WARN" "No results to export" "EXPORT"
         return
     }
-    
+
+    # Validate OutputPath parameter
+    if ([string]::IsNullOrWhiteSpace($OutputPath)) {
+        Write-LogMessage "ERROR" "CRITICAL: OutputPath parameter is null or empty in Export-AuditResults" "EXPORT"
+        Write-LogMessage "ERROR" "Script:OutputPath value: '$Script:OutputPath'" "EXPORT"
+        # Fallback to script-level OutputPath
+        $OutputPath = $Script:OutputPath
+        if ([string]::IsNullOrWhiteSpace($OutputPath)) {
+            Write-LogMessage "ERROR" "CRITICAL: Script:OutputPath is also null! Using hardcoded fallback." "EXPORT"
+            $OutputPath = "C:\WindowsAudit"
+        }
+        Write-LogMessage "INFO" "Using fallback OutputPath: $OutputPath" "EXPORT"
+    }
+
     # Ensure output directory exists
     if (-not (Test-Path $OutputPath)) {
         New-Item -ItemType Directory -Path $OutputPath -Force | Out-Null
