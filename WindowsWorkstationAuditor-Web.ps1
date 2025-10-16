@@ -3,7 +3,7 @@
 # Platform: Windows 10/11
 # Requires: PowerShell 5.0+
 # Usage: [Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12; iex (irm https://your-url/WindowsWorkstationAuditor-Web.ps1)
-# Built: 2025-10-15 20:43:28
+# Built: 2025-10-15 21:05:56
 # Modules: 27 embedded modules in dependency order
 
 param(
@@ -7996,4 +7996,68 @@ try {
     exit 1
 }
 
+# Script entry point
+try {
+    # Check for Windows Server before proceeding
+    $OSInfo = Get-CimInstance -ClassName Win32_OperatingSystem
+    $IsWindowsServer = $OSInfo.ProductType -ne 1  # ProductType: 1=Workstation, 2=Domain Controller, 3=Server
+    
+    if ($IsWindowsServer) {
+        $ServerProduct = $OSInfo.Caption
+        Write-Host ""
+        Write-Host "WARNING: WINDOWS SERVER DETECTED" -ForegroundColor Yellow
+        Write-Host ""
+        Write-Host "This script is designed for Windows WORKSTATIONS (Windows 10/11)." -ForegroundColor Yellow
+        Write-Host "You are running: $ServerProduct" -ForegroundColor Yellow
+        Write-Host ""
+        Write-Host "Windows Servers have different:" -ForegroundColor Yellow
+        Write-Host "  - Security models and default configurations" -ForegroundColor Yellow
+        Write-Host "  - Service requirements and roles" -ForegroundColor Yellow
+        Write-Host "  - Best practice recommendations and baselines" -ForegroundColor Yellow
+        Write-Host "  - Network security considerations" -ForegroundColor Yellow
+        Write-Host ""
+        Write-Host "Please use WindowsServerAuditor.ps1 for server environments." -ForegroundColor Yellow
+        Write-Host ""
+        Write-Host "If you need to run this workstation audit anyway, use -Force parameter," -ForegroundColor Yellow
+        Write-Host "but results may not be accurate for server environments." -ForegroundColor Yellow
+        Write-Host ""
+        
+        if (-not $PSBoundParameters.ContainsKey("Force")) {
+            Write-Host "Exiting... Use -Force parameter to override this check." -ForegroundColor Red
+            exit 1
+        } else {
+            Write-Host "WARNING: Proceeding with workstation audit on server OS (Force parameter used)" -ForegroundColor Red
+            Start-Sleep -Seconds 3
+        }
+    }
+    
+    # Initialize logging (basic initialization before core modules load)
+    $LogDirectory = Join-Path $OutputPath "logs"
+    if (-not (Test-Path $LogDirectory)) {
+        New-Item -ItemType Directory -Path $LogDirectory -Force | Out-Null
+    }
+    $Script:LogFile = Join-Path $LogDirectory "${Script:BaseFileName}_audit.log"
+    
+    # Basic logging function for pre-core-module use
+    function Write-LogMessage {
+        param([string]$Level, [string]$Message, [string]$Category = "GENERAL")
+        $Timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+        $LogEntry = "[$Timestamp] [$Level] [$Category] $Message"
+        switch ($Level) {
+            "ERROR" { Write-Host $LogEntry -ForegroundColor Red }
+            "WARN"  { Write-Host $LogEntry -ForegroundColor Yellow }
+            "SUCCESS" { Write-Host $LogEntry -ForegroundColor Green }
+            default { Write-Host $LogEntry }
+        }
+        if ($Script:LogFile) { Add-Content -Path $Script:LogFile -Value $LogEntry }
+    }
+    
+    # Start the audit
+    $AuditResults = Start-ModularAudit
+    Write-LogMessage "SUCCESS" "Windows Workstation Auditor completed successfully" "MAIN"
+}
+catch {
+    Write-LogMessage "ERROR" "Audit failed: $($_.Exception.Message)" "MAIN"
+    exit 1
+}
 

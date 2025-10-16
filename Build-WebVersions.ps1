@@ -166,9 +166,9 @@ if (-not (Test-Path `$OutputPath)) {
     $WebScript += "}`n`n"
 
     foreach ($Line in $MainScriptLines) {
-        # Skip everything until we hit the banner/pre-flight checks
+        # Skip everything until we hit the script entry point
         if ($SkipUntilBanner) {
-            if ($Line -match "^#\s*Pre-flight checks" -or $Line -match "^Write-Host.*Auditor.*Assessment") {
+            if ($Line -match "^#\s*Script entry point") {
                 $SkipUntilBanner = $false
                 $WebScript += $Line + "`n"
                 continue
@@ -180,18 +180,27 @@ if (-not (Test-Path `$OutputPath)) {
             continue
         }
 
-        # Skip core module loading block
+        # Skip core module loading block (dot-source imports of core modules)
         if ($Line -match "^\s*#\s*Load core (functions|modules)" -or $Line -match "^\s*\`$CoreModules\s*=") {
             $InModuleLoadBlock = $true
             continue
         }
         if ($InModuleLoadBlock -eq $true) {
-            if ($Line -match "^if.*Initialize-Logging") {
+            # End at Initialize-Logging, "Initialize proper logging", or "Load all audit modules" comment
+            if ($Line -match "Initialize-Logging" -or
+                $Line -match "^\s*#\s*Initialize proper logging" -or
+                $Line -match "^\s*#\s*Load all audit modules") {
                 $InModuleLoadBlock = $false
-                $WebScript += $Line + "`n"
+                # If it's the audit modules comment, don't skip it - let the next filter handle it
+                if ($Line -match "^\s*#\s*Load all audit modules") {
+                    # Let this line be processed by the audit module filter
+                } else {
+                    # Skip Initialize-Logging lines
+                    continue
+                }
+            } else {
                 continue
             }
-            continue
         }
 
         # Skip external config file loading block (but keep $ServerAuditModules)
@@ -215,8 +224,8 @@ if (-not (Test-Path `$OutputPath)) {
             continue
         }
         if ($InModuleLoadBlock -eq 2) {
-            # End when we hit "Execute audit modules" comment
-            if ($Line -match "^\s*#\s*Execute audit modules") {
+            # End when we hit "Start the audit" comment or Start-ServerAudit/Start-ModularAudit call
+            if ($Line -match "^\s*#\s*Start the audit" -or $Line -match "^\s*\`$AuditResults\s*=\s*Start-") {
                 $InModuleLoadBlock = $false
                 $WebScript += $Line + "`n"
                 continue

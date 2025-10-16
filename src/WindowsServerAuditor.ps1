@@ -1,6 +1,6 @@
 # WindowsServerAuditor - Windows Server IT Assessment Tool
 # Version 1.3.0 - Modular Architecture
-# Platform: Windows Server 2016+ (use WindowsWorkstationAuditor.ps1 for workstations)
+# Platform: Windows Server 2008-2022 (use WindowsWorkstationAuditor.ps1 for workstations)
 # Requires: PowerShell 5.0+, Local Administrator Rights (recommended)
 
 param(
@@ -21,14 +21,14 @@ function Import-AuditModule {
     <#
     .SYNOPSIS
         Dynamically imports audit modules with dependency management
-        
+
     .DESCRIPTION
         Loads PowerShell audit modules from the modules directory,
         handling dependencies and providing error handling.
-        
+
     .PARAMETER ModuleName
         Name of the module to import (without .ps1 extension)
-        
+
     .PARAMETER ModulePath
         Path to the modules directory
     #>
@@ -36,7 +36,7 @@ function Import-AuditModule {
         [string]$ModuleName,
         [string]$ModulePath = ".\src\modules"
     )
-    
+
     try {
         $ModuleFile = Join-Path $ModulePath "$ModuleName.ps1"
         if (Test-Path $ModuleFile) {
@@ -55,275 +55,426 @@ function Import-AuditModule {
     }
 }
 
-# Pre-flight checks
-Write-Host "WindowsServerAuditor v1.3.0 - Windows Server IT Assessment Tool" -ForegroundColor Cyan
-Write-Host "=========================================================" -ForegroundColor Cyan
+function Import-CoreModules {
+    <#
+    .SYNOPSIS
+        Imports core logging and utility modules
 
-# Check if running on Windows Server
-$OSInfo = Get-CimInstance -ClassName Win32_OperatingSystem
-if ($OSInfo.ProductType -eq 1) {
-    Write-Host "WARNING: This system appears to be a workstation, not a server." -ForegroundColor Yellow
-    Write-Host "Consider using WindowsWorkstationAuditor.ps1 instead." -ForegroundColor Yellow
-    if (-not $Force) {
-        Write-Host "Use -Force parameter to continue anyway." -ForegroundColor Yellow
-        exit 1
+    .DESCRIPTION
+        Loads essential core modules required for the audit system to function.
+    #>
+
+    $CorePath = ".\src\core"
+    $CoreModules = @("Write-LogMessage", "Initialize-Logging", "Export-MarkdownReport", "Export-RawDataJSON")
+    $LoadedModules = 0
+
+    foreach ($Module in $CoreModules) {
+        if (Import-AuditModule -ModuleName $Module -ModulePath $CorePath) {
+            $LoadedModules++
+        }
     }
+
+    Write-Host "[INFO] Core modules loaded: $LoadedModules/$($CoreModules.Count)" -ForegroundColor Cyan
+    return $LoadedModules -eq $CoreModules.Count
 }
 
-# Check PowerShell version
-if ($PSVersionTable.PSVersion.Major -lt 5) {
-    Write-Host "ERROR: PowerShell 5.0 or higher is required. Current version: $($PSVersionTable.PSVersion)" -ForegroundColor Red
-    exit 1
-}
+function Import-AuditModules {
+    <#
+    .SYNOPSIS
+        Imports all audit modules based on configuration
 
-# Create output directory structure
-if (-not (Test-Path $OutputPath)) {
-    try {
-        New-Item -ItemType Directory -Path $OutputPath -Force | Out-Null
-        Write-Host "Created output directory: $OutputPath" -ForegroundColor Green
-    }
-    catch {
-        Write-Host "ERROR: Failed to create output directory: $($_.Exception.Message)" -ForegroundColor Red
-        exit 1
-    }
-}
+    .DESCRIPTION
+        Loads audit modules dynamically based on the configuration file,
+        allowing for selective module execution.
+    #>
 
-# Load core functions
-Write-Host "Loading core functions..." -ForegroundColor Yellow
-
-$CoreModules = @(
-    "Write-LogMessage",
-    "Initialize-Logging", 
-    "Export-MarkdownReport",
-    "Export-RawDataJSON"
-)
-
-foreach ($CoreModule in $CoreModules) {
-    $CoreModuleFile = ".\src\core\$CoreModule.ps1"
-    if (Test-Path $CoreModuleFile) {
+    # Load configuration
+    $ConfigFile = Join-Path $ConfigPath "server-audit-config.json"
+    if (Test-Path $ConfigFile) {
         try {
-            . $CoreModuleFile
-            Write-Host "  [OK] Loaded $CoreModule" -ForegroundColor Green
+            $Config = Get-Content $ConfigFile | ConvertFrom-Json
+            Write-LogMessage "SUCCESS" "Loaded configuration from: $ConfigFile" "CONFIG"
         }
         catch {
-            Write-Host "  [ERROR] Failed to load $CoreModule : $($_.Exception.Message)" -ForegroundColor Red
-            exit 1
+            Write-LogMessage "WARN" "Failed to load config, using defaults: $($_.Exception.Message)" "CONFIG"
+            $Config = $null
         }
     } else {
-        Write-Host "  [ERROR] Core module not found: $CoreModuleFile" -ForegroundColor Red
-        exit 1
-    }
-}
-
-# Initialize logging
-if (-not (Initialize-Logging -LogDirectory (Join-Path $OutputPath "logs") -LogFileName "${Script:BaseFileName}_server_audit.log")) {
-    Write-Host "ERROR: Failed to initialize logging system" -ForegroundColor Red
-    exit 1
-}
-
-Write-LogMessage "INFO" "WindowsServerAuditor v1.3.0 starting..." "MAIN"
-Write-LogMessage "INFO" "Server: $($env:COMPUTERNAME)" "MAIN" 
-Write-LogMessage "INFO" "OS: $($OSInfo.Caption) $($OSInfo.Version)" "MAIN"
-Write-LogMessage "INFO" "Output directory: $OutputPath" "MAIN"
-
-# Load configuration
-$ConfigFile = Join-Path $ConfigPath "server-audit-config.json"
-if (Test-Path $ConfigFile) {
-    try {
-        $Config = Get-Content $ConfigFile | ConvertFrom-Json
-        Write-LogMessage "SUCCESS" "Configuration loaded from: $ConfigFile" "CONFIG"
-    }
-    catch {
-        Write-LogMessage "ERROR" "Failed to load configuration: $($_.Exception.Message)" "CONFIG"
-        Write-LogMessage "INFO" "Using default configuration" "CONFIG"
+        Write-LogMessage "WARN" "Config file not found, using defaults: $ConfigFile" "CONFIG"
         $Config = $null
     }
-} else {
-    Write-LogMessage "WARN" "Configuration file not found: $ConfigFile" "CONFIG" 
-    Write-LogMessage "INFO" "Using default configuration" "CONFIG"
-    $Config = $null
-}
 
-# Default configuration for servers
-if (-not $Config) {
-    $Config = @{
-        version = "1.3.0"
-        modules = @{
-            # Core system modules (reused from workstation)
-            system = @{ enabled = $true; timeout = 30 }
-            memory = @{ enabled = $true; timeout = 15 }
-            disk = @{ enabled = $true; timeout = 20 }
-            network = @{ enabled = $true; timeout = 30 }
-            process = @{ enabled = $true; timeout = 30 }
-            patches = @{ enabled = $true; timeout = 60 }
-            software = @{ enabled = $true; timeout = 45 }
-            security = @{ enabled = $true; timeout = 20 }
-            eventlog = @{ enabled = $true; timeout = 45 }
-            users = @{ enabled = $true; timeout = 20 }
-            
-            # Server-specific modules
-            serverroles = @{ enabled = $true; timeout = 30 }
-            dhcp = @{ enabled = $true; timeout = 20 }
-            dns = @{ enabled = $true; timeout = 20 }
-            fileshares = @{ enabled = $true; timeout = 15 }
-            activedirectory = @{ enabled = $true; timeout = 45 }
-            iis = @{ enabled = $true; timeout = 20 }
-            services = @{ enabled = $true; timeout = 15 }
+    # Define available audit modules for servers
+    $AuditModules = @(
+        # Core system analysis (reused from workstation)
+        @{ Name = "Get-SystemInformation"; ConfigKey = "system"; Required = $true },
+        @{ Name = "Get-MemoryAnalysis"; ConfigKey = "memory"; Required = $true },
+        @{ Name = "Get-DiskSpaceAnalysis"; ConfigKey = "disk"; Required = $true },
+        @{ Name = "Get-PatchStatus"; ConfigKey = "patches"; Required = $true },
+        @{ Name = "Get-ProcessAnalysis"; ConfigKey = "process"; Required = $true },
+        @{ Name = "Get-SoftwareInventory"; ConfigKey = "software"; Required = $true },
+        @{ Name = "Get-SecuritySettings"; ConfigKey = "security"; Required = $true },
+        @{ Name = "Get-NetworkAnalysis"; ConfigKey = "network"; Required = $true },
+        @{ Name = "Get-EventLogAnalysis"; ConfigKey = "eventlog"; Required = $true },
+        @{ Name = "Get-UserAccountAnalysis"; ConfigKey = "users"; Required = $true },
+
+        # Server-specific modules
+        @{ Name = "Get-ServerRoleAnalysis"; ConfigKey = "serverroles"; Required = $true },
+        @{ Name = "Get-DHCPAnalysis"; ConfigKey = "dhcp"; Required = $false },
+        @{ Name = "Get-DNSAnalysis"; ConfigKey = "dns"; Required = $false },
+        @{ Name = "Get-FileShareAnalysis"; ConfigKey = "fileshares"; Required = $true },
+        @{ Name = "Get-ActiveDirectoryAnalysis"; ConfigKey = "activedirectory"; Required = $false }
+    )
+
+    $LoadedModules = @()
+    $FailedModules = @()
+
+    foreach ($Module in $AuditModules) {
+        $ModuleName = $Module.Name
+        $ConfigKey = $Module.ConfigKey
+        $IsRequired = $Module.Required
+
+        # Check if module is enabled in config
+        $IsEnabled = $true
+        if ($Config -and $Config.modules -and $Config.modules.$ConfigKey) {
+            $IsEnabled = $Config.modules.$ConfigKey.enabled
         }
-        output = @{
-            formats = @("markdown", "rawjson")
-            path = $OutputPath
-            timestamp = $true
-        }
-    }
-}
 
-# Module execution order for servers
-$ServerAuditModules = @(
-    # Core system analysis (reused modules)
-    @{Name="Get-SystemInformation"; Config="system"}
-    @{Name="Get-MemoryAnalysis"; Config="memory"}
-    @{Name="Get-DiskSpaceAnalysis"; Config="disk"}
-    @{Name="Get-PatchStatus"; Config="patches"}
-    @{Name="Get-ProcessAnalysis"; Config="process"}
-    @{Name="Get-SoftwareInventory"; Config="software"}
-    @{Name="Get-SecuritySettings"; Config="security"}
-    @{Name="Get-NetworkAnalysis"; Config="network"}
-    @{Name="Get-EventLogAnalysis"; Config="eventlog"}
-    @{Name="Get-UserAccountAnalysis"; Config="users"}
-    
-    # Server-specific analysis (new modules)
-    @{Name="Get-ServerRoleAnalysis"; Config="serverroles"}
-    @{Name="Get-DHCPAnalysis"; Config="dhcp"}
-    @{Name="Get-DNSAnalysis"; Config="dns"}
-    @{Name="Get-FileShareAnalysis"; Config="fileshares"}
-    @{Name="Get-ActiveDirectoryAnalysis"; Config="activedirectory"}
-    @{Name="Get-IISAnalysis"; Config="iis"}
-    @{Name="Get-ServerServiceAnalysis"; Config="services"}
-)
+        if ($IsEnabled -or $IsRequired) {
+            Write-LogMessage "INFO" "Loading audit module: $ModuleName" "MODULE"
 
-# Load all audit modules at script level to ensure global scope
-Write-LogMessage "INFO" "Loading audit modules..." "MAIN"
-$AuditModuleFiles = @(
-    # Core system analysis (reused from workstation)
-    "Get-SystemInformation",
-    "Get-MemoryAnalysis",
-    "Get-DiskSpaceAnalysis", 
-    "Get-PatchStatus",
-    "Get-ProcessAnalysis",
-    "Get-SoftwareInventory",
-    "Get-SecuritySettings",
-    "Get-NetworkAnalysis",
-    "Get-EventLogAnalysis",
-    "Get-UserAccountAnalysis",
-    
-    # Server-specific modules
-    "Get-ServerRoleAnalysis",
-    "Get-DHCPAnalysis",
-    "Get-DNSAnalysis",
-    "Get-FileShareAnalysis",
-    "Get-ActiveDirectoryAnalysis"
-    # Note: IIS module not yet created
-)
-
-foreach ($ModuleName in $AuditModuleFiles) {
-    $ModuleFile = ".\src\modules\$ModuleName.ps1"
-    if (Test-Path $ModuleFile) {
-        try {
-            . $ModuleFile
-            Write-LogMessage "SUCCESS" "Loaded module: $ModuleName" "MODULE"
-        }
-        catch {
-            Write-LogMessage "ERROR" "Failed to load module $ModuleName : $($_.Exception.Message)" "MODULE"
-        }
-    } else {
-        Write-LogMessage "WARN" "Module file not found: $ModuleFile" "MODULE"
-    }
-}
-
-# Execute audit modules  
-Write-LogMessage "INFO" "Starting server audit modules..." "MAIN"
-$AllResults = @()
-$ModuleResults = @{}
-
-foreach ($Module in $ServerAuditModules) {
-    $ModuleName = $Module.Name
-    $ModuleConfig = $Module.Config
-    
-    # Check if module is enabled in config
-    if ($Config.modules.$ModuleConfig.enabled -eq $false) {
-        Write-LogMessage "INFO" "Module $ModuleName is disabled - skipping" "MODULE"
-        continue
-    }
-    
-    # Set timeout for module execution
-    $TimeoutSeconds = $Config.modules.$ModuleConfig.timeout
-    if (-not $TimeoutSeconds) { $TimeoutSeconds = 30 }
-    
-    try {
-        # Load the module (skip import since modules are loaded at script level)
-        if (Get-Command $ModuleName -ErrorAction SilentlyContinue) {
-            Write-LogMessage "INFO" "Executing module: $ModuleName (timeout: ${TimeoutSeconds}s)" "AUDIT"
-            $ModuleStartTime = Get-Date
-            
-            # Execute the module function
-            try {
-                $Results = & $ModuleName
-                $ModuleDuration = ((Get-Date) - $ModuleStartTime).TotalSeconds
-                
-                if ($Results -and $Results.Count -gt 0) {
-                    $AllResults += $Results
-                    $ModuleResults[$ModuleName] = $Results
-                    Write-LogMessage "SUCCESS" "$ModuleName completed in $([math]::Round($ModuleDuration, 2))s - $($Results.Count) results" "AUDIT"
-                } else {
-                    Write-LogMessage "WARN" "$ModuleName returned no results" "AUDIT"
+            if (Import-AuditModule -ModuleName $ModuleName) {
+                $LoadedModules += $ModuleName
+            } else {
+                $FailedModules += $ModuleName
+                if ($IsRequired) {
+                    Write-LogMessage "ERROR" "Required module failed to load: $ModuleName" "MODULE"
                 }
             }
-            catch {
-                Write-LogMessage "ERROR" "$ModuleName execution failed: $($_.Exception.Message)" "AUDIT"
+        } else {
+            Write-LogMessage "INFO" "Module disabled in config: $ModuleName" "MODULE"
+        }
+    }
+
+    Write-LogMessage "SUCCESS" "Module loading complete - Loaded: $($LoadedModules.Count), Failed: $($FailedModules.Count)" "MODULE"
+
+    return @{
+        LoadedModules = $LoadedModules
+        FailedModules = $FailedModules
+        Config = $Config
+    }
+}
+
+function Invoke-AuditModule {
+    <#
+    .SYNOPSIS
+        Safely executes an audit module with error handling and timeout
+
+    .DESCRIPTION
+        Executes an audit module function with proper error handling,
+        timeout protection, and result validation.
+
+    .PARAMETER ModuleName
+        Name of the module function to execute
+
+    .PARAMETER TimeoutSeconds
+        Maximum execution time before timeout (default: 60)
+    #>
+    param(
+        [string]$ModuleName,
+        [int]$TimeoutSeconds = 60
+    )
+
+    try {
+        Write-LogMessage "INFO" "Executing audit module: $ModuleName" "AUDIT"
+        $StartTime = Get-Date
+
+        # Execute the module function
+        $Results = & $ModuleName
+
+        $EndTime = Get-Date
+        $Duration = ($EndTime - $StartTime).TotalSeconds
+
+        if ($Results -and $Results.Count -gt 0) {
+            Write-LogMessage "SUCCESS" "Module $ModuleName completed in $([math]::Round($Duration, 2)) seconds - $($Results.Count) results" "AUDIT"
+            return $Results
+        } else {
+            Write-LogMessage "WARN" "Module $ModuleName returned no results" "AUDIT"
+            return @()
+        }
+    }
+    catch {
+        Write-LogMessage "ERROR" "Module $ModuleName failed: $($_.Exception.Message)" "AUDIT"
+        return @()
+    }
+}
+
+function Export-AuditResults {
+    <#
+    .SYNOPSIS
+        Exports audit results to various formats including markdown and raw JSON
+
+    .DESCRIPTION
+        Exports the collected audit results to multiple formats:
+        - markdown: Technician-friendly report with detailed findings
+        - rawjson: Comprehensive data for aggregation tools
+
+    .PARAMETER Results
+        Array of audit results to export
+
+    .PARAMETER Config
+        Configuration object with export settings
+
+    .PARAMETER IsServer
+        Flag indicating this is a server audit (affects report generation)
+    #>
+    param(
+        [array]$Results,
+        [object]$Config,
+        [switch]$IsServer
+    )
+
+    if (-not $Results -or $Results.Count -eq 0) {
+        Write-LogMessage "WARN" "No results to export" "EXPORT"
+        return
+    }
+
+    # Ensure output directory exists
+    if (-not (Test-Path $OutputPath)) {
+        New-Item -ItemType Directory -Path $OutputPath -Force | Out-Null
+        Write-LogMessage "INFO" "Created output directory: $OutputPath" "EXPORT"
+    }
+
+    # Default formats: markdown for technicians, rawjson for aggregation
+    $ExportFormats = @("markdown", "rawjson")
+    if ($Config -and $Config.output -and $Config.output.formats) {
+        $ExportFormats = $Config.output.formats
+    }
+
+    $ExportResults = @()
+
+    foreach ($Format in $ExportFormats) {
+        try {
+            switch ($Format.ToLower()) {
+                "markdown" {
+                    $ReportPath = Export-MarkdownReport -Results $Results -OutputPath $OutputPath -BaseFileName $Script:BaseFileName -IsServer:$IsServer
+                    if ($ReportPath) {
+                        $ExportResults += "Technician Report: $ReportPath"
+                    }
+                }
+                "rawjson" {
+                    # Include raw data collections if available
+                    $RawData = @{}
+                    if (Get-Variable -Name "RawDataCollections" -Scope Global -ErrorAction SilentlyContinue) {
+                        $RawData = $Global:RawDataCollections
+                    }
+
+                    $JSONPath = Export-RawDataJSON -Results $Results -RawData $RawData -OutputPath $OutputPath -BaseFileName $Script:BaseFileName -IsServer:$IsServer
+                    if ($JSONPath) {
+                        $ExportResults += "Raw Data JSON: $JSONPath"
+                    }
+                }
+                default {
+                    Write-LogMessage "WARN" "Unsupported export format: $Format" "EXPORT"
+                }
             }
         }
+        catch {
+            Write-LogMessage "ERROR" "Failed to export $Format format: $($_.Exception.Message)" "EXPORT"
+        }
     }
-    catch {
-        Write-LogMessage "ERROR" "Failed to process module $ModuleName : $($_.Exception.Message)" "MODULE"
+
+    # Summary of exports
+    if ($ExportResults.Count -gt 0) {
+        Write-LogMessage "SUCCESS" "Export completed - $($ExportResults.Count) files generated" "EXPORT"
+        foreach ($Result in $ExportResults) {
+            Write-LogMessage "INFO" $Result "EXPORT"
+        }
     }
 }
 
-# Generate final results
-$AuditDuration = ((Get-Date) - $Script:StartTime).TotalMinutes
-Write-LogMessage "INFO" "Server audit completed in $([math]::Round($AuditDuration, 2)) minutes" "MAIN"
-Write-LogMessage "INFO" "Total findings: $($AllResults.Count)" "MAIN"
+function Start-ServerAudit {
+    <#
+    .SYNOPSIS
+        Main server audit orchestration function
 
-if ($AllResults.Count -gt 0) {
-    # Export results
-    try {
-        Write-LogMessage "INFO" "Exporting audit results..." "EXPORT"
-        
-        if ($Config.output.formats -contains "markdown") {
-            Export-MarkdownReport -Results $AllResults -OutputPath $OutputPath -BaseFileName $Script:BaseFileName -IsServer $true
+    .DESCRIPTION
+        Orchestrates the complete server audit execution, result collection, and export.
+        Modules are loaded at script level before this function is called.
+    #>
+
+    Write-LogMessage "INFO" "Starting Windows Server Audit v1.3.0..." "MAIN"
+
+    # Execute audit modules (modules already loaded at script level)
+    $AllResults = @()
+    $ServerAuditModules = @(
+        "Get-SystemInformation", "Get-MemoryAnalysis", "Get-DiskSpaceAnalysis",
+        "Get-PatchStatus", "Get-ProcessAnalysis", "Get-SoftwareInventory",
+        "Get-SecuritySettings", "Get-NetworkAnalysis", "Get-EventLogAnalysis",
+        "Get-UserAccountAnalysis", "Get-ServerRoleAnalysis", "Get-DHCPAnalysis",
+        "Get-DNSAnalysis", "Get-FileShareAnalysis", "Get-ActiveDirectoryAnalysis"
+    )
+
+    foreach ($ModuleName in $ServerAuditModules) {
+        # Skip if module isn't loaded (Get-Command will return null)
+        if (Get-Command $ModuleName -ErrorAction SilentlyContinue) {
+            $ModuleResults = Invoke-AuditModule -ModuleName $ModuleName
+            if ($ModuleResults -and $ModuleResults.Count -gt 0) {
+                $AllResults += $ModuleResults
+            }
+        } else {
+            Write-LogMessage "WARN" "Module not loaded, skipping: $ModuleName" "AUDIT"
         }
-        
-        if ($Config.output.formats -contains "rawjson") {  
-            Export-RawDataJSON -Results $AllResults -OutputPath $OutputPath -BaseFileName $Script:BaseFileName -IsServer $true
-        }
-        
-        Write-LogMessage "SUCCESS" "Server audit results exported to: $OutputPath" "EXPORT"
-        
-        # Display summary
+    }
+
+    if ($AllResults.Count -eq 0) {
+        Write-LogMessage "WARN" "No audit results collected" "MAIN"
+    } else {
+        Write-LogMessage "SUCCESS" "Collected $($AllResults.Count) audit results" "MAIN"
+
+        # Display risk summary
         $RiskCounts = $AllResults | Group-Object RiskLevel | ForEach-Object { "$($_.Name): $($_.Count)" }
         Write-LogMessage "INFO" "Risk summary - $($RiskCounts -join ', ')" "SUMMARY"
-        
-        Write-Host "`nServer Audit Complete!" -ForegroundColor Green
-        Write-Host "Results saved to: $OutputPath" -ForegroundColor Cyan
-        Write-Host "Log file: $($Script:LogFile)" -ForegroundColor Cyan
-        
+
+        # Load configuration for export
+        $ConfigFile = Join-Path $ConfigPath "server-audit-config.json"
+        $Config = $null
+        if (Test-Path $ConfigFile) {
+            try {
+                $Config = Get-Content $ConfigFile | ConvertFrom-Json
+            } catch {
+                Write-LogMessage "WARN" "Failed to load config for export, using defaults" "MAIN"
+            }
+        }
+
+        # Export results
+        Export-AuditResults -Results $AllResults -Config $Config -IsServer
     }
-    catch {
-        Write-LogMessage "ERROR" "Failed to export results: $($_.Exception.Message)" "EXPORT"
-    }
-} else {
-    Write-LogMessage "ERROR" "No audit results to export" "MAIN"
-    Write-Host "ERROR: No audit results were collected. Check the log file for details." -ForegroundColor Red
+
+    $EndTime = Get-Date
+    $Duration = New-TimeSpan -Start $Script:StartTime -End $EndTime
+    Write-LogMessage "SUCCESS" "Server audit completed in $([math]::Round($Duration.TotalMinutes, 2)) minutes" "MAIN"
+
+    Write-Host "`nServer Audit Complete!" -ForegroundColor Green
+    Write-Host "Results saved to: $OutputPath" -ForegroundColor Cyan
+    Write-Host "Log file: $($Script:LogFile)" -ForegroundColor Cyan
+
+    return $AllResults
 }
 
-Write-LogMessage "INFO" "WindowsServerAuditor execution completed" "MAIN"
+# Script entry point
+try {
+    # Pre-flight checks
+    Write-Host "WindowsServerAuditor v1.3.0 - Windows Server IT Assessment Tool" -ForegroundColor Cyan
+    Write-Host "=========================================================" -ForegroundColor Cyan
+
+    # Check if running on Windows Server
+    $OSInfo = Get-CimInstance -ClassName Win32_OperatingSystem
+    if ($OSInfo.ProductType -eq 1) {
+        Write-Host ""
+        Write-Host "WARNING: This system appears to be a WORKSTATION, not a server." -ForegroundColor Yellow
+        Write-Host "Consider using WindowsWorkstationAuditor.ps1 instead." -ForegroundColor Yellow
+        Write-Host ""
+
+        if (-not $PSBoundParameters.ContainsKey("Force")) {
+            Write-Host "Exiting... Use -Force parameter to continue anyway." -ForegroundColor Red
+            exit 1
+        } else {
+            Write-Host "WARNING: Proceeding with server audit on workstation OS (Force parameter used)" -ForegroundColor Red
+            Start-Sleep -Seconds 3
+        }
+    }
+
+    # Check PowerShell version
+    if ($PSVersionTable.PSVersion.Major -lt 5) {
+        Write-Host "ERROR: PowerShell 5.0 or higher is required. Current version: $($PSVersionTable.PSVersion)" -ForegroundColor Red
+        exit 1
+    }
+
+    # Create output directory structure
+    if (-not (Test-Path $OutputPath)) {
+        try {
+            New-Item -ItemType Directory -Path $OutputPath -Force | Out-Null
+            Write-Host "Created output directory: $OutputPath" -ForegroundColor Green
+        }
+        catch {
+            Write-Host "ERROR: Failed to create output directory: $($_.Exception.Message)" -ForegroundColor Red
+            exit 1
+        }
+    }
+
+    # Initialize logging (basic initialization before core modules load)
+    $LogDirectory = Join-Path $OutputPath "logs"
+    if (-not (Test-Path $LogDirectory)) {
+        New-Item -ItemType Directory -Path $LogDirectory -Force | Out-Null
+    }
+    $Script:LogFile = Join-Path $LogDirectory "${Script:BaseFileName}_server_audit.log"
+
+    # Basic logging function for pre-core-module use
+    function Write-LogMessage {
+        param([string]$Level, [string]$Message, [string]$Category = "GENERAL")
+        $Timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+        $LogEntry = "[$Timestamp] [$Level] [$Category] $Message"
+        switch ($Level) {
+            "ERROR" { Write-Host $LogEntry -ForegroundColor Red }
+            "WARN"  { Write-Host $LogEntry -ForegroundColor Yellow }
+            "SUCCESS" { Write-Host $LogEntry -ForegroundColor Green }
+            default { Write-Host $LogEntry }
+        }
+        if ($Script:LogFile) { Add-Content -Path $Script:LogFile -Value $LogEntry }
+    }
+
+    # Load core modules at script level
+    Write-LogMessage "INFO" "Loading core modules..." "MAIN"
+    . ".\src\core\Write-LogMessage.ps1"
+    . ".\src\core\Initialize-Logging.ps1"
+    . ".\src\core\Export-MarkdownReport.ps1"
+    . ".\src\core\Export-RawDataJSON.ps1"
+
+    # Initialize proper logging system
+    if (-not (Initialize-Logging -LogDirectory $LogDirectory -LogFileName "${Script:BaseFileName}_server_audit.log")) {
+        Write-Host "ERROR: Failed to initialize logging system" -ForegroundColor Red
+        exit 1
+    }
+
+    Write-LogMessage "INFO" "WindowsServerAuditor v1.3.0 starting..." "MAIN"
+    Write-LogMessage "INFO" "Server: $($env:COMPUTERNAME)" "MAIN"
+    Write-LogMessage "INFO" "OS: $($OSInfo.Caption) $($OSInfo.Version)" "MAIN"
+    Write-LogMessage "INFO" "Output directory: $OutputPath" "MAIN"
+
+    # Load all audit modules at script level to ensure global scope
+    Write-LogMessage "INFO" "Loading audit modules..." "MAIN"
+    $AuditModuleFiles = @(
+        # Core system analysis (reused from workstation)
+        "Get-SystemInformation", "Get-MemoryAnalysis", "Get-DiskSpaceAnalysis",
+        "Get-PatchStatus", "Get-ProcessAnalysis", "Get-SoftwareInventory",
+        "Get-SecuritySettings", "Get-NetworkAnalysis", "Get-EventLogAnalysis",
+        "Get-UserAccountAnalysis",
+
+        # Server-specific modules
+        "Get-ServerRoleAnalysis", "Get-DHCPAnalysis", "Get-DNSAnalysis",
+        "Get-FileShareAnalysis", "Get-ActiveDirectoryAnalysis"
+    )
+
+    foreach ($ModuleName in $AuditModuleFiles) {
+        $ModuleFile = ".\src\modules\$ModuleName.ps1"
+        if (Test-Path $ModuleFile) {
+            . $ModuleFile
+            Write-LogMessage "SUCCESS" "Loaded module: $ModuleName" "MODULE"
+        } else {
+            Write-LogMessage "WARN" "Module file not found: $ModuleFile" "MODULE"
+        }
+    }
+
+    # Start the audit
+    $AuditResults = Start-ServerAudit
+    Write-LogMessage "SUCCESS" "Windows Server Auditor completed successfully" "MAIN"
+}
+catch {
+    Write-Host "FATAL ERROR: $($_.Exception.Message)" -ForegroundColor Red
+    Write-Host "Stack Trace: $($_.ScriptStackTrace)" -ForegroundColor Red
+    if ($Script:LogFile) {
+        Add-Content -Path $Script:LogFile -Value "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] [ERROR] [MAIN] FATAL: $($_.Exception.Message)"
+    }
+    exit 1
+}

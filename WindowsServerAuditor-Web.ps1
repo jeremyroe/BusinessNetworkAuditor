@@ -3,7 +3,7 @@
 # Platform: Windows 10/11, Windows Server 2008-2022+
 # Requires: PowerShell 5.0+
 # Usage: [Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12; iex (irm https://your-url/WindowsServerAuditor-Web.ps1)
-# Built: 2025-10-15 20:43:28
+# Built: 2025-10-15 21:05:56
 # Modules: 27 embedded modules in dependency order
 
 param(
@@ -8024,157 +8024,89 @@ try {
     exit 1
 }
 
-# Pre-flight checks
-Write-Host "WindowsServerAuditor v1.3.0 - Windows Server IT Assessment Tool" -ForegroundColor Cyan
-Write-Host "=========================================================" -ForegroundColor Cyan
+# Script entry point
+try {
+    # Pre-flight checks
+    Write-Host "WindowsServerAuditor v1.3.0 - Windows Server IT Assessment Tool" -ForegroundColor Cyan
+    Write-Host "=========================================================" -ForegroundColor Cyan
 
-# Check if running on Windows Server
-$OSInfo = Get-CimInstance -ClassName Win32_OperatingSystem
-if ($OSInfo.ProductType -eq 1) {
-    Write-Host "WARNING: This system appears to be a workstation, not a server." -ForegroundColor Yellow
-    Write-Host "Consider using WindowsWorkstationAuditor.ps1 instead." -ForegroundColor Yellow
-    if (-not $Force) {
-        Write-Host "Use -Force parameter to continue anyway." -ForegroundColor Yellow
+    # Check if running on Windows Server
+    $OSInfo = Get-CimInstance -ClassName Win32_OperatingSystem
+    if ($OSInfo.ProductType -eq 1) {
+        Write-Host ""
+        Write-Host "WARNING: This system appears to be a WORKSTATION, not a server." -ForegroundColor Yellow
+        Write-Host "Consider using WindowsWorkstationAuditor.ps1 instead." -ForegroundColor Yellow
+        Write-Host ""
+
+        if (-not $PSBoundParameters.ContainsKey("Force")) {
+            Write-Host "Exiting... Use -Force parameter to continue anyway." -ForegroundColor Red
+            exit 1
+        } else {
+            Write-Host "WARNING: Proceeding with server audit on workstation OS (Force parameter used)" -ForegroundColor Red
+            Start-Sleep -Seconds 3
+        }
+    }
+
+    # Check PowerShell version
+    if ($PSVersionTable.PSVersion.Major -lt 5) {
+        Write-Host "ERROR: PowerShell 5.0 or higher is required. Current version: $($PSVersionTable.PSVersion)" -ForegroundColor Red
         exit 1
     }
-}
 
-# Check PowerShell version
-if ($PSVersionTable.PSVersion.Major -lt 5) {
-    Write-Host "ERROR: PowerShell 5.0 or higher is required. Current version: $($PSVersionTable.PSVersion)" -ForegroundColor Red
+    # Create output directory structure
+    if (-not (Test-Path $OutputPath)) {
+        try {
+            New-Item -ItemType Directory -Path $OutputPath -Force | Out-Null
+            Write-Host "Created output directory: $OutputPath" -ForegroundColor Green
+        }
+        catch {
+            Write-Host "ERROR: Failed to create output directory: $($_.Exception.Message)" -ForegroundColor Red
+            exit 1
+        }
+    }
+
+    # Initialize logging (basic initialization before core modules load)
+    $LogDirectory = Join-Path $OutputPath "logs"
+    if (-not (Test-Path $LogDirectory)) {
+        New-Item -ItemType Directory -Path $LogDirectory -Force | Out-Null
+    }
+    $Script:LogFile = Join-Path $LogDirectory "${Script:BaseFileName}_server_audit.log"
+
+    # Basic logging function for pre-core-module use
+    function Write-LogMessage {
+        param([string]$Level, [string]$Message, [string]$Category = "GENERAL")
+        $Timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+        $LogEntry = "[$Timestamp] [$Level] [$Category] $Message"
+        switch ($Level) {
+            "ERROR" { Write-Host $LogEntry -ForegroundColor Red }
+            "WARN"  { Write-Host $LogEntry -ForegroundColor Yellow }
+            "SUCCESS" { Write-Host $LogEntry -ForegroundColor Green }
+            default { Write-Host $LogEntry }
+        }
+        if ($Script:LogFile) { Add-Content -Path $Script:LogFile -Value $LogEntry }
+    }
+
+    if (-not (Initialize-Logging -LogDirectory $LogDirectory -LogFileName "${Script:BaseFileName}_server_audit.log")) {
+        Write-Host "ERROR: Failed to initialize logging system" -ForegroundColor Red
+        exit 1
+    }
+
+    Write-LogMessage "INFO" "WindowsServerAuditor v1.3.0 starting..." "MAIN"
+    Write-LogMessage "INFO" "Server: $($env:COMPUTERNAME)" "MAIN"
+    Write-LogMessage "INFO" "OS: $($OSInfo.Caption) $($OSInfo.Version)" "MAIN"
+    Write-LogMessage "INFO" "Output directory: $OutputPath" "MAIN"
+
+    # Start the audit
+    $AuditResults = Start-ServerAudit
+    Write-LogMessage "SUCCESS" "Windows Server Auditor completed successfully" "MAIN"
+}
+catch {
+    Write-Host "FATAL ERROR: $($_.Exception.Message)" -ForegroundColor Red
+    Write-Host "Stack Trace: $($_.ScriptStackTrace)" -ForegroundColor Red
+    if ($Script:LogFile) {
+        Add-Content -Path $Script:LogFile -Value "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] [ERROR] [MAIN] FATAL: $($_.Exception.Message)"
+    }
     exit 1
 }
 
-# Create output directory structure
-if (-not (Test-Path $OutputPath)) {
-    try {
-        New-Item -ItemType Directory -Path $OutputPath -Force | Out-Null
-        Write-Host "Created output directory: $OutputPath" -ForegroundColor Green
-    }
-    catch {
-        Write-Host "ERROR: Failed to create output directory: $($_.Exception.Message)" -ForegroundColor Red
-        exit 1
-    }
-}
-
-if (-not (Initialize-Logging -LogDirectory (Join-Path $OutputPath "logs") -LogFileName "${Script:BaseFileName}_server_audit.log")) {
-    Write-Host "ERROR: Failed to initialize logging system" -ForegroundColor Red
-    exit 1
-}
-
-Write-LogMessage "INFO" "WindowsServerAuditor v1.3.0 starting..." "MAIN"
-Write-LogMessage "INFO" "Server: $($env:COMPUTERNAME)" "MAIN" 
-Write-LogMessage "INFO" "OS: $($OSInfo.Caption) $($OSInfo.Version)" "MAIN"
-Write-LogMessage "INFO" "Output directory: $OutputPath" "MAIN"
-
-# Module execution order for servers
-$ServerAuditModules = @(
-    # Core system analysis (reused modules)
-    @{Name="Get-SystemInformation"; Config="system"}
-    @{Name="Get-MemoryAnalysis"; Config="memory"}
-    @{Name="Get-DiskSpaceAnalysis"; Config="disk"}
-    @{Name="Get-PatchStatus"; Config="patches"}
-    @{Name="Get-ProcessAnalysis"; Config="process"}
-    @{Name="Get-SoftwareInventory"; Config="software"}
-    @{Name="Get-SecuritySettings"; Config="security"}
-    @{Name="Get-NetworkAnalysis"; Config="network"}
-    @{Name="Get-EventLogAnalysis"; Config="eventlog"}
-    @{Name="Get-UserAccountAnalysis"; Config="users"}
-    
-    # Server-specific analysis (new modules)
-    @{Name="Get-ServerRoleAnalysis"; Config="serverroles"}
-    @{Name="Get-DHCPAnalysis"; Config="dhcp"}
-    @{Name="Get-DNSAnalysis"; Config="dns"}
-    @{Name="Get-FileShareAnalysis"; Config="fileshares"}
-    @{Name="Get-ActiveDirectoryAnalysis"; Config="activedirectory"}
-    @{Name="Get-IISAnalysis"; Config="iis"}
-    @{Name="Get-ServerServiceAnalysis"; Config="services"}
-)
-
-# Execute audit modules  
-Write-LogMessage "INFO" "Starting server audit modules..." "MAIN"
-$AllResults = @()
-$ModuleResults = @{}
-
-foreach ($Module in $ServerAuditModules) {
-    $ModuleName = $Module.Name
-    $ModuleConfig = $Module.Config
-    
-    # Check if module is enabled in config
-    if ($Config.modules.$ModuleConfig.enabled -eq $false) {
-        Write-LogMessage "INFO" "Module $ModuleName is disabled - skipping" "MODULE"
-        continue
-    }
-    
-    # Set timeout for module execution
-    $TimeoutSeconds = $Config.modules.$ModuleConfig.timeout
-    if (-not $TimeoutSeconds) { $TimeoutSeconds = 30 }
-    
-    try {
-        # Load the module (skip import since modules are loaded at script level)
-        if (Get-Command $ModuleName -ErrorAction SilentlyContinue) {
-            Write-LogMessage "INFO" "Executing module: $ModuleName (timeout: ${TimeoutSeconds}s)" "AUDIT"
-            $ModuleStartTime = Get-Date
-            
-            # Execute the module function
-            try {
-                $Results = & $ModuleName
-                $ModuleDuration = ((Get-Date) - $ModuleStartTime).TotalSeconds
-                
-                if ($Results -and $Results.Count -gt 0) {
-                    $AllResults += $Results
-                    $ModuleResults[$ModuleName] = $Results
-                    Write-LogMessage "SUCCESS" "$ModuleName completed in $([math]::Round($ModuleDuration, 2))s - $($Results.Count) results" "AUDIT"
-                } else {
-                    Write-LogMessage "WARN" "$ModuleName returned no results" "AUDIT"
-                }
-            }
-            catch {
-                Write-LogMessage "ERROR" "$ModuleName execution failed: $($_.Exception.Message)" "AUDIT"
-            }
-        }
-    }
-    catch {
-        Write-LogMessage "ERROR" "Failed to process module $ModuleName : $($_.Exception.Message)" "MODULE"
-    }
-}
-
-# Generate final results
-$AuditDuration = ((Get-Date) - $Script:StartTime).TotalMinutes
-Write-LogMessage "INFO" "Server audit completed in $([math]::Round($AuditDuration, 2)) minutes" "MAIN"
-Write-LogMessage "INFO" "Total findings: $($AllResults.Count)" "MAIN"
-
-if ($AllResults.Count -gt 0) {
-    # Export results
-    try {
-        Write-LogMessage "INFO" "Exporting audit results..." "EXPORT"
-        
-        if ($Config.output.formats -contains "markdown") {
-            Export-MarkdownReport -Results $AllResults -OutputPath $OutputPath -BaseFileName $Script:BaseFileName -IsServer $true
-        }
-        
-        if ($Config.output.formats -contains "rawjson") {  
-            Export-RawDataJSON -Results $AllResults -OutputPath $OutputPath -BaseFileName $Script:BaseFileName -IsServer $true
-        }
-        
-        Write-LogMessage "SUCCESS" "Server audit results exported to: $OutputPath" "EXPORT"
-        
-        # Display summary
-        $RiskCounts = $AllResults | Group-Object RiskLevel | ForEach-Object { "$($_.Name): $($_.Count)" }
-        Write-LogMessage "INFO" "Risk summary - $($RiskCounts -join ', ')" "SUMMARY"
-        
-        Write-Host "`nServer Audit Complete!" -ForegroundColor Green
-        Write-Host "Results saved to: $OutputPath" -ForegroundColor Cyan
-        Write-Host "Log file: $($Script:LogFile)" -ForegroundColor Cyan
-        
-    }
-    catch {
-        Write-LogMessage "ERROR" "Failed to export results: $($_.Exception.Message)" "EXPORT"
-    }
-} else {
-    Write-LogMessage "ERROR" "No audit results to export" "MAIN"
-    Write-Host "ERROR: No audit results were collected. Check the log file for details." -ForegroundColor Red
-}
-
-Write-LogMessage "INFO" "WindowsServerAuditor execution completed" "MAIN"
 
