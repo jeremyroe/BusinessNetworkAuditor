@@ -200,8 +200,9 @@ function Import-AuditData {
 
                         if ($CategoryData.findings) {
                             foreach ($Finding in $CategoryData.findings) {
-                                if (-not $Finding.item_name) {
-                                    Write-Verbose "Skipping finding with missing item_name in $($JsonFile.Name)"
+                                # Skip findings with null or empty item_name
+                                if (-not $Finding.item_name -or [string]::IsNullOrWhiteSpace($Finding.item_name)) {
+                                    Write-Verbose "Skipping finding with null/empty item_name in $($JsonFile.Name)"
                                     continue
                                 }
 
@@ -237,6 +238,7 @@ function Import-AuditData {
         }
         catch {
             Write-Warning "Failed to process $($JsonFile.Name): $($_.Exception.Message)"
+            Write-Verbose "Error details: $($_.ScriptStackTrace)"
             $Result.Errors += "Processing error: $($JsonFile.Name) - $($_.Exception.Message)"
         }
     }
