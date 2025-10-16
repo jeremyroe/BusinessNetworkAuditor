@@ -1,13 +1,12 @@
-# Output files
-output/
+# Aggregator directories - keep folders, ignore contents
+import/*.json
+import/*.csv
+output/*.json
 output/*.csv
-output/*.log
+output/*.md
 output/*.html
 output/*.pdf
-
-# Aggregator directories  
-import/
-import/*.json
+output/*.log
 
 # Temporary files
 *.tmp
