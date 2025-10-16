@@ -152,19 +152,25 @@ function Import-AuditData {
             } else {
                 # Process system audit findings
                 foreach ($Finding in $AuditData.compliance_framework.findings) {
-                    # Map the compliance framework structure to expected format
+                    # Validate required fields before creating object
+                    if (-not $Finding.category -or -not $Finding.item) {
+                        Write-Verbose "Skipping finding with missing category or item in $($JsonFile.Name)"
+                        continue
+                    }
+
+                    # Map the compliance framework structure to expected format with safe string conversion
                     $EnrichedFinding = [PSCustomObject]@{
-                        Category = $Finding.category
-                        Item = $Finding.item
+                        Category = [string]($Finding.category ?? "Unknown")
+                        Item = [string]($Finding.item ?? "Unknown")
                         Value = "" # Not available in compliance framework
-                        Details = $Finding.requirement
-                        RiskLevel = $Finding.risk_level
-                        Recommendation = $Finding.requirement
-                        SystemName = $SystemInfo.ComputerName
-                        SystemType = $SystemInfo.SystemType
-                        AuditDate = $SystemInfo.AuditTimestamp
-                        FindingId = $Finding.finding_id
-                        Framework = $Finding.framework
+                        Details = [string]($Finding.requirement ?? "No details available")
+                        RiskLevel = [string]($Finding.risk_level ?? "INFO")
+                        Recommendation = [string]($Finding.requirement ?? "No recommendation available")
+                        SystemName = [string]($SystemInfo.ComputerName ?? "Unknown")
+                        SystemType = [string]($SystemInfo.SystemType ?? "Unknown")
+                        AuditDate = [string]($SystemInfo.AuditTimestamp ?? "Unknown")
+                        FindingId = [string]($Finding.finding_id ?? "UNKNOWN-$(Get-Random)")
+                        Framework = [string]($Finding.framework ?? "Unknown")
                     }
 
                     $Result.AllFindings += $EnrichedFinding

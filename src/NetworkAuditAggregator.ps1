@@ -25,10 +25,15 @@
 #>
 
 param(
-    [string]$ImportPath = ".\import",
-    [string]$OutputPath = ".\output", 
+    [string]$ImportPath,
+    [string]$OutputPath,
     [string]$ClientName = "Client Name"
 )
+
+# Set default paths relative to project root (one level up from script location)
+$ProjectRoot = Split-Path -Parent $PSScriptRoot
+if (-not $ImportPath) { $ImportPath = Join-Path $ProjectRoot "import" }
+if (-not $OutputPath) { $OutputPath = Join-Path $ProjectRoot "output" }
 
 # Global variables
 $Script:StartTime = Get-Date
