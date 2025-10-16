@@ -119,14 +119,15 @@ $ConfigContent
 '@
 
 # Global variables
+`$Script:OutputPath = if (`$OutputPath) { `$OutputPath } else { "`$env:USERPROFILE\WindowsAudit" }
 `$Script:LogFile = ""
 `$Script:StartTime = Get-Date
 `$Script:ComputerName = `$env:COMPUTERNAME
 `$Script:BaseFileName = "`${ComputerName}_`$(`$StartTime.ToString('yyyyMMdd_HHmmss'))"
 
 # Ensure output directory exists
-if (-not (Test-Path `$OutputPath)) {
-    New-Item -ItemType Directory -Path `$OutputPath -Force | Out-Null
+if (-not (Test-Path `$Script:OutputPath)) {
+    New-Item -ItemType Directory -Path `$Script:OutputPath -Force | Out-Null
 }
 
 # === EMBEDDED MODULES (DEPENDENCY ORDER) ===
