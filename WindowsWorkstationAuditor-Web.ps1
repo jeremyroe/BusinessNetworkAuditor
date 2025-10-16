@@ -3,7 +3,7 @@
 # Platform: Windows 10/11
 # Requires: PowerShell 5.0+
 # Usage: iex (irm https://your-url/WindowsWorkstationAuditor-Web.ps1)
-# Built: 2025-10-15 19:53:06
+# Built: 2025-10-15 20:30:54
 # Modules: 27 embedded modules in dependency order
 
 param(
@@ -7984,65 +7984,14 @@ function Invoke-SubscriptionFreeCheck {
 }
 
 # === MAIN SCRIPT LOGIC ===
-# WindowsWorkstationAuditor - Windows Workstation Security Audit Tool
-# Version 1.3.0 - Modular Architecture
-# Platform: Windows 10/11 Workstations (use WindowsServerAuditor.ps1 for servers)
-# Requires: PowerShell 5.0+, Local Administrator Rights (recommended)
 
-
-# Global variables
-$Script:LogFile = ""
-$Script:StartTime = Get-Date
-$Script:ComputerName = $env:COMPUTERNAME
-$Script:BaseFileName = "${ComputerName}_$($StartTime.ToString('yyyyMMdd_HHmmss'))"
-
-# Module loading system
-function Import-AuditModule {
-    <#
-    .SYNOPSIS
-        Dynamically imports audit modules with dependency management
-        
-    .DESCRIPTION
-        Loads PowerShell audit modules from the modules directory,
-        handling dependencies and providing error handling.
-        
-    .PARAMETER ModuleName
-        Name of the module to import (without .ps1 extension)
-        
-    .PARAMETER ModulePath
-        Path to the modules directory
-    #>
-    param(
-        [string]$ModuleName,
-        [string]$ModulePath = ".\src\modules"
-    )
-    
-    try {
-        $ModuleFile = Join-Path $ModulePath "$ModuleName.ps1"
-        if (Test-Path $ModuleFile) {
-            # Dot-source the module file to load functions
-            . $ModuleFile
-            Write-LogMessage "SUCCESS" "Loaded module: $ModuleName" "MODULE"
-            return $true
-        } else {
-            Write-LogMessage "ERROR" "Module file not found: $ModuleFile" "MODULE"
-            return $false
-        }
-    }
-    catch {
-        Write-LogMessage "ERROR" "Failed to load module $ModuleName`: $($_.Exception.Message)" "MODULE"
-        return $false
-    }
+# Parse embedded configuration
+try {
+    $Config = $Script:EmbeddedConfig | ConvertFrom-Json
+    Write-Host "Loaded embedded configuration (version: $($Config.version))" -ForegroundColor Green
+} catch {
+    Write-Host "ERROR: Failed to parse embedded configuration: $($_.Exception.Message)" -ForegroundColor Red
+    exit 1
 }
 
-function Import-CoreModules {
-    <#
-    .SYNOPSIS
-        Imports core logging and utility modules
-        
-    .DESCRIPTION
-        Loads essential core modules required for the audit system to function.
-    #>
-    
-    $CorePath = ".\src\core"
 

@@ -3,7 +3,7 @@
 # Platform: Windows 10/11, Windows Server 2008-2022+
 # Requires: PowerShell 5.0+
 # Usage: iex (irm https://your-url/WindowsServerAuditor-Web.ps1)
-# Built: 2025-10-15 19:52:39
+# Built: 2025-10-15 20:30:54
 # Modules: 27 embedded modules in dependency order
 
 param(
@@ -8012,55 +8012,14 @@ function Invoke-SubscriptionFreeCheck {
 }
 
 # === MAIN SCRIPT LOGIC ===
-# WindowsServerAuditor - Windows Server IT Assessment Tool
-# Version 1.3.0 - Modular Architecture
-# Platform: Windows Server 2016+ (use WindowsWorkstationAuditor.ps1 for workstations)
-# Requires: PowerShell 5.0+, Local Administrator Rights (recommended)
 
-
-# Global variables
-$Script:LogFile = ""
-$Script:StartTime = Get-Date
-$Script:ComputerName = $env:COMPUTERNAME
-$Script:BaseFileName = "${ComputerName}_$($StartTime.ToString('yyyyMMdd_HHmmss'))"
-
-# Module loading system
-function Import-AuditModule {
-    <#
-    .SYNOPSIS
-        Dynamically imports audit modules with dependency management
-        
-    .DESCRIPTION
-        Loads PowerShell audit modules from the modules directory,
-        handling dependencies and providing error handling.
-        
-    .PARAMETER ModuleName
-        Name of the module to import (without .ps1 extension)
-        
-    .PARAMETER ModulePath
-        Path to the modules directory
-    #>
-    param(
-        [string]$ModuleName,
-        [string]$ModulePath = ".\src\modules"
-    )
-    
-    try {
-        $ModuleFile = Join-Path $ModulePath "$ModuleName.ps1"
-        if (Test-Path $ModuleFile) {
-            # Dot-source the module file to load functions
-            . $ModuleFile
-            Write-LogMessage "SUCCESS" "Loaded module: $ModuleName" "MODULE"
-            return $true
-        } else {
-            Write-LogMessage "ERROR" "Module file not found: $ModuleFile" "MODULE"
-            return $false
-        }
-    }
-    catch {
-        Write-LogMessage "ERROR" "Failed to load module ${ModuleName}: $($_.Exception.Message)" "MODULE"
-        return $false
-    }
+# Parse embedded configuration
+try {
+    $Config = $Script:EmbeddedConfig | ConvertFrom-Json
+    Write-Host "Loaded embedded configuration (version: $($Config.version))" -ForegroundColor Green
+} catch {
+    Write-Host "ERROR: Failed to parse embedded configuration: $($_.Exception.Message)" -ForegroundColor Red
+    exit 1
 }
 
 # Pre-flight checks
@@ -8106,58 +8065,6 @@ Write-LogMessage "INFO" "Server: $($env:COMPUTERNAME)" "MAIN"
 Write-LogMessage "INFO" "OS: $($OSInfo.Caption) $($OSInfo.Version)" "MAIN"
 Write-LogMessage "INFO" "Output directory: $OutputPath" "MAIN"
 
-# Load configuration
-$ConfigFile = Join-Path $ConfigPath "server-audit-config.json"
-if (Test-Path $ConfigFile) {
-    try {
-        $Config = Get-Content $ConfigFile | ConvertFrom-Json
-        Write-LogMessage "SUCCESS" "Configuration loaded from: $ConfigFile" "CONFIG"
-    }
-    catch {
-        Write-LogMessage "ERROR" "Failed to load configuration: $($_.Exception.Message)" "CONFIG"
-        Write-LogMessage "INFO" "Using default configuration" "CONFIG"
-        $Config = $null
-    }
-} else {
-    Write-LogMessage "WARN" "Configuration file not found: $ConfigFile" "CONFIG" 
-    Write-LogMessage "INFO" "Using default configuration" "CONFIG"
-    $Config = $null
-}
-
-# Default configuration for servers
-if (-not $Config) {
-    $Config = @{
-        version = "1.3.0"
-        modules = @{
-            # Core system modules (reused from workstation)
-            system = @{ enabled = $true; timeout = 30 }
-            memory = @{ enabled = $true; timeout = 15 }
-            disk = @{ enabled = $true; timeout = 20 }
-            network = @{ enabled = $true; timeout = 30 }
-            process = @{ enabled = $true; timeout = 30 }
-            patches = @{ enabled = $true; timeout = 60 }
-            software = @{ enabled = $true; timeout = 45 }
-            security = @{ enabled = $true; timeout = 20 }
-            eventlog = @{ enabled = $true; timeout = 45 }
-            users = @{ enabled = $true; timeout = 20 }
-            
-            # Server-specific modules
-            serverroles = @{ enabled = $true; timeout = 30 }
-            dhcp = @{ enabled = $true; timeout = 20 }
-            dns = @{ enabled = $true; timeout = 20 }
-            fileshares = @{ enabled = $true; timeout = 15 }
-            activedirectory = @{ enabled = $true; timeout = 45 }
-            iis = @{ enabled = $true; timeout = 20 }
-            services = @{ enabled = $true; timeout = 15 }
-        }
-        output = @{
-            formats = @("markdown", "rawjson")
-            path = $OutputPath
-            timestamp = $true
-        }
-    }
-}
-
 # Module execution order for servers
 $ServerAuditModules = @(
     # Core system analysis (reused modules)
@@ -8181,45 +8088,6 @@ $ServerAuditModules = @(
     @{Name="Get-IISAnalysis"; Config="iis"}
     @{Name="Get-ServerServiceAnalysis"; Config="services"}
 )
-
-# Load all audit modules at script level to ensure global scope
-Write-LogMessage "INFO" "Loading audit modules..." "MAIN"
-$AuditModuleFiles = @(
-    # Core system analysis (reused from workstation)
-    "Get-SystemInformation",
-    "Get-MemoryAnalysis",
-    "Get-DiskSpaceAnalysis", 
-    "Get-PatchStatus",
-    "Get-ProcessAnalysis",
-    "Get-SoftwareInventory",
-    "Get-SecuritySettings",
-    "Get-NetworkAnalysis",
-    "Get-EventLogAnalysis",
-    "Get-UserAccountAnalysis",
-    
-    # Server-specific modules
-    "Get-ServerRoleAnalysis",
-    "Get-DHCPAnalysis",
-    "Get-DNSAnalysis",
-    "Get-FileShareAnalysis",
-    "Get-ActiveDirectoryAnalysis"
-    # Note: IIS module not yet created
-)
-
-foreach ($ModuleName in $AuditModuleFiles) {
-    $ModuleFile = ".\src\modules\$ModuleName.ps1"
-    if (Test-Path $ModuleFile) {
-        try {
-            . $ModuleFile
-            Write-LogMessage "SUCCESS" "Loaded module: $ModuleName" "MODULE"
-        }
-        catch {
-            Write-LogMessage "ERROR" "Failed to load module $ModuleName : $($_.Exception.Message)" "MODULE"
-        }
-    } else {
-        Write-LogMessage "WARN" "Module file not found: $ModuleFile" "MODULE"
-    }
-}
 
 # Execute audit modules  
 Write-LogMessage "INFO" "Starting server audit modules..." "MAIN"

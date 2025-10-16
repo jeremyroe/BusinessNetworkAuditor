@@ -158,38 +158,73 @@ if (-not (Test-Path `$OutputPath)) {
 
     # Add main script logic (excluding param block and module imports)
     $MainScriptLines = $MainScript -split "`n"
-    $InParamBlock = $false
+    $SkipUntilBanner = $true
     $InModuleLoadBlock = $false
+    $InConfigLoadBlock = $false
 
     $WebScript += "`n# === MAIN SCRIPT LOGIC ===`n"
+    $WebScript += "`n# Parse embedded configuration`n"
+    $WebScript += "try {`n"
+    $WebScript += "    `$Config = `$Script:EmbeddedConfig | ConvertFrom-Json`n"
+    $WebScript += "    Write-Host `"Loaded embedded configuration (version: `$(`$Config.version))`" -ForegroundColor Green`n"
+    $WebScript += "} catch {`n"
+    $WebScript += "    Write-Host `"ERROR: Failed to parse embedded configuration: `$(`$_.Exception.Message)`" -ForegroundColor Red`n"
+    $WebScript += "    exit 1`n"
+    $WebScript += "}`n`n"
 
     foreach ($Line in $MainScriptLines) {
-        if ($Line -match "^param\(") {
-            $InParamBlock = $true
+        # Skip everything until we hit the banner/pre-flight checks
+        if ($SkipUntilBanner) {
+            if ($Line -match "^#\s*Pre-flight checks" -or $Line -match "^Write-Host.*Auditor.*Assessment") {
+                $SkipUntilBanner = $false
+                $WebScript += $Line + "`n"
+                continue
+            }
             continue
         }
-        if ($InParamBlock -and $Line -match "^\)") {
-            $InParamBlock = $false
-            continue
-        }
-        if ($InParamBlock) {
-            continue
-        }
+        # Skip direct dot-source imports
         if ($Line -match "^\s*\.\s+.*\.ps1") {
-            # Skip module import lines since modules are embedded
             continue
         }
 
-        # Skip module loading block that loads from .\src\core\
+        # Skip core module loading block
         if ($Line -match "^\s*#\s*Load core (functions|modules)" -or $Line -match "^\s*\`$CoreModules\s*=") {
             $InModuleLoadBlock = $true
             continue
         }
-        if ($InModuleLoadBlock) {
-            # Stay in block until we hit Initialize-Logging call
+        if ($InModuleLoadBlock -eq $true) {
             if ($Line -match "^if.*Initialize-Logging") {
                 $InModuleLoadBlock = $false
-                # Include this line since modules are already embedded
+                $WebScript += $Line + "`n"
+                continue
+            }
+            continue
+        }
+
+        # Skip external config file loading block (but keep $ServerAuditModules)
+        if ($Line -match "^\s*#\s*Load configuration") {
+            $InConfigLoadBlock = $true
+            continue
+        }
+        if ($InConfigLoadBlock -eq $true) {
+            # End at Module execution order comment or the $ServerAuditModules line
+            if ($Line -match "^#\s*Module execution order" -or $Line -match "^\`$ServerAuditModules\s*=") {
+                $InConfigLoadBlock = $false
+                $WebScript += $Line + "`n"
+                continue
+            }
+            continue
+        }
+
+        # Skip audit module file loading block (the foreach that loads from .\src\modules)
+        if ($Line -match "^\s*#\s*Load all audit modules") {
+            $InModuleLoadBlock = 2  # Use different value to avoid conflict
+            continue
+        }
+        if ($InModuleLoadBlock -eq 2) {
+            # End when we hit "Execute audit modules" comment
+            if ($Line -match "^\s*#\s*Execute audit modules") {
+                $InModuleLoadBlock = $false
                 $WebScript += $Line + "`n"
                 continue
             }

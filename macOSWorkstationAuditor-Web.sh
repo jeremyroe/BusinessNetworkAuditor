@@ -5,7 +5,7 @@
 # Platform: macOS 12+ (Monterey and later)
 # Requires: bash 3.2+, standard macOS utilities
 # Usage: curl -s https://your-url/macOSWorkstationAuditor-Web.sh | bash
-# Built: 2025-10-15 19:56:09
+# Built: 2025-10-15 20:30:54
 # Modules: 10 embedded shell modules
 
 # Parameters can be set via environment variables:
