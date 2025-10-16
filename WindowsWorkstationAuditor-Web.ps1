@@ -3,7 +3,7 @@
 # Platform: Windows 10/11
 # Requires: PowerShell 5.0+
 # Usage: [Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12; iex (irm https://your-url/WindowsWorkstationAuditor-Web.ps1)
-# Built: 2025-10-15 21:44:11
+# Built: 2025-10-15 21:52:10
 # Modules: 27 embedded modules in dependency order
 
 param(
@@ -2882,7 +2882,7 @@ function Get-PatchStatus {
 
             if (-not (Get-Module -ListAvailable -Name PSWindowsUpdate)) {
                 Write-LogMessage "INFO" "Installing PSWindowsUpdate module..." "PATCHES"
-                Set-ExecutionPolicy RemoteSigned -Scope Process -Force
+                Set-ExecutionPolicy Bypass -Scope Process -Force
                 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
                 # Install NuGet provider automatically to avoid prompts

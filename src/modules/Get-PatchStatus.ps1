@@ -45,7 +45,7 @@ function Get-PatchStatus {
 
             if (-not (Get-Module -ListAvailable -Name PSWindowsUpdate)) {
                 Write-LogMessage "INFO" "Installing PSWindowsUpdate module..." "PATCHES"
-                Set-ExecutionPolicy RemoteSigned -Scope Process -Force
+                Set-ExecutionPolicy Bypass -Scope Process -Force
                 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
                 # Install NuGet provider automatically to avoid prompts
