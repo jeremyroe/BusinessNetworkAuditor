@@ -69,9 +69,12 @@ function Import-AuditData {
                     continue
                 }
             } else {
-                # Validate system audit file structure
-                if (-not $AuditData.metadata -or -not $AuditData.compliance_framework.findings) {
-                    Write-Warning "Invalid audit file format: $($JsonFile.Name) - Missing metadata or compliance_framework.findings"
+                # Validate system audit file structure - support both old and new formats
+                $HasOldFormat = $AuditData.metadata -and $AuditData.compliance_framework.findings
+                $HasNewFormat = $AuditData.metadata -and $AuditData.categories
+
+                if (-not $HasOldFormat -and -not $HasNewFormat) {
+                    Write-Warning "Invalid audit file format: $($JsonFile.Name) - Missing metadata or findings structure"
                     $Result.Errors += "Invalid format: $($JsonFile.Name)"
                     continue
                 }
@@ -92,13 +95,26 @@ function Import-AuditData {
                     LastBootTime = ""
                 }
             } else {
+                # Count findings based on format
+                $TotalFindings = 0
+                if ($AuditData.compliance_framework.findings) {
+                    $TotalFindings = $AuditData.compliance_framework.findings.Count
+                } elseif ($AuditData.categories) {
+                    # Count findings across all categories
+                    $AuditData.categories.PSObject.Properties | ForEach-Object {
+                        if ($_.Value.findings) {
+                            $TotalFindings += $_.Value.findings.Count
+                        }
+                    }
+                }
+
                 $SystemInfo = [PSCustomObject]@{
                     ComputerName = $AuditData.metadata.computer_name
                     AuditTimestamp = $AuditData.metadata.audit_timestamp
                     ToolVersion = $AuditData.metadata.tool_version
                     FileName = $JsonFile.Name
                     FileSize = [math]::Round($JsonFile.Length / 1KB, 1)
-                    FindingCount = $AuditData.compliance_framework.findings.Count
+                    FindingCount = $TotalFindings
                     OperatingSystem = ""
                     SystemType = "Unknown"
                     Domain = ""
@@ -150,31 +166,64 @@ function Import-AuditData {
                     $Result.FindingCount++
                 }
             } else {
-                # Process system audit findings
-                foreach ($Finding in $AuditData.compliance_framework.findings) {
-                    # Validate required fields before creating object
-                    if (-not $Finding.category -or -not $Finding.item) {
-                        Write-Verbose "Skipping finding with missing category or item in $($JsonFile.Name)"
-                        continue
-                    }
+                # Process system audit findings - handle both old and new formats
+                if ($AuditData.compliance_framework.findings) {
+                    # Old format: compliance_framework.findings array
+                    foreach ($Finding in $AuditData.compliance_framework.findings) {
+                        if (-not $Finding.category -or -not $Finding.item) {
+                            Write-Verbose "Skipping finding with missing category or item in $($JsonFile.Name)"
+                            continue
+                        }
 
-                    # Map the compliance framework structure to expected format with safe string conversion
-                    $EnrichedFinding = [PSCustomObject]@{
-                        Category = if ($Finding.category) { [string]$Finding.category } else { "Unknown" }
-                        Item = if ($Finding.item) { [string]$Finding.item } else { "Unknown" }
-                        Value = "" # Not available in compliance framework
-                        Details = if ($Finding.requirement) { [string]$Finding.requirement } else { "No details available" }
-                        RiskLevel = if ($Finding.risk_level) { [string]$Finding.risk_level } else { "INFO" }
-                        Recommendation = if ($Finding.requirement) { [string]$Finding.requirement } else { "No recommendation available" }
-                        SystemName = if ($SystemInfo.ComputerName) { [string]$SystemInfo.ComputerName } else { "Unknown" }
-                        SystemType = if ($SystemInfo.SystemType) { [string]$SystemInfo.SystemType } else { "Unknown" }
-                        AuditDate = if ($SystemInfo.AuditTimestamp) { [string]$SystemInfo.AuditTimestamp } else { "Unknown" }
-                        FindingId = if ($Finding.finding_id) { [string]$Finding.finding_id } else { "UNKNOWN-$(Get-Random)" }
-                        Framework = if ($Finding.framework) { [string]$Finding.framework } else { "Unknown" }
-                    }
+                        $EnrichedFinding = [PSCustomObject]@{
+                            Category = if ($Finding.category) { [string]$Finding.category } else { "Unknown" }
+                            Item = if ($Finding.item) { [string]$Finding.item } else { "Unknown" }
+                            Value = ""
+                            Details = if ($Finding.requirement) { [string]$Finding.requirement } else { "No details available" }
+                            RiskLevel = if ($Finding.risk_level) { [string]$Finding.risk_level } else { "INFO" }
+                            Recommendation = if ($Finding.requirement) { [string]$Finding.requirement } else { "No recommendation available" }
+                            SystemName = if ($SystemInfo.ComputerName) { [string]$SystemInfo.ComputerName } else { "Unknown" }
+                            SystemType = if ($SystemInfo.SystemType) { [string]$SystemInfo.SystemType } else { "Unknown" }
+                            AuditDate = if ($SystemInfo.AuditTimestamp) { [string]$SystemInfo.AuditTimestamp } else { "Unknown" }
+                            FindingId = if ($Finding.finding_id) { [string]$Finding.finding_id } else { "UNKNOWN-$(Get-Random)" }
+                            Framework = if ($Finding.framework) { [string]$Finding.framework } else { "Unknown" }
+                        }
 
-                    $Result.AllFindings += $EnrichedFinding
-                    $Result.FindingCount++
+                        $Result.AllFindings += $EnrichedFinding
+                        $Result.FindingCount++
+                    }
+                } elseif ($AuditData.categories) {
+                    # New format: categories with nested findings
+                    $AuditData.categories.PSObject.Properties | ForEach-Object {
+                        $CategoryName = $_.Name
+                        $CategoryData = $_.Value
+
+                        if ($CategoryData.findings) {
+                            foreach ($Finding in $CategoryData.findings) {
+                                if (-not $Finding.item_name) {
+                                    Write-Verbose "Skipping finding with missing item_name in $($JsonFile.Name)"
+                                    continue
+                                }
+
+                                $EnrichedFinding = [PSCustomObject]@{
+                                    Category = if ($Finding.category) { [string]$Finding.category } else { [string]$CategoryName }
+                                    Item = if ($Finding.item_name) { [string]$Finding.item_name } else { "Unknown" }
+                                    Value = if ($Finding.value) { [string]$Finding.value } else { "" }
+                                    Details = if ($Finding.details) { [string]$Finding.details } else { "No details available" }
+                                    RiskLevel = if ($Finding.risk_level) { [string]$Finding.risk_level } else { "INFO" }
+                                    Recommendation = if ($Finding.recommendation_note) { [string]$Finding.recommendation_note } else { "" }
+                                    SystemName = if ($SystemInfo.ComputerName) { [string]$SystemInfo.ComputerName } else { "Unknown" }
+                                    SystemType = if ($SystemInfo.SystemType) { [string]$SystemInfo.SystemType } else { "Unknown" }
+                                    AuditDate = if ($SystemInfo.AuditTimestamp) { [string]$SystemInfo.AuditTimestamp } else { "Unknown" }
+                                    FindingId = if ($Finding.id) { [string]$Finding.id } else { "UNKNOWN-$(Get-Random)" }
+                                    Framework = "WindowsAudit"
+                                }
+
+                                $Result.AllFindings += $EnrichedFinding
+                                $Result.FindingCount++
+                            }
+                        }
+                    }
                 }
             }
             
@@ -182,7 +231,7 @@ function Import-AuditData {
             if ($IsDarkWebFile) {
                 Write-Verbose "  > Imported $($DarkWebFindings.Count) dark web findings"
             } else {
-                Write-Verbose "  > Imported $($AuditData.compliance_framework.findings.Count) findings from $($SystemInfo.ComputerName)"
+                Write-Verbose "  > Imported $($SystemInfo.FindingCount) findings from $($SystemInfo.ComputerName)"
             }
             
         }
